@@ -13,13 +13,14 @@ con <- DBI::dbConnect(
 au <- sf::st_read(con, layer = "aus_border")
 DBI::dbDisconnect(con)
 
-fl <- list.files("C://Users/61423/Desktop/", pattern = "^gfs.t12z.pgrb2")
 
-r <- terra::rast(paste0("C://Users/61423/Desktop/", fl))
+fl <- list.files("C://Users/61423/Desktop/GFStest/", pattern = "^gfs")
+r <- terra::rast(paste0("C://Users/61423/Desktop/GFStest/", fl))
 r
+
+setMinMax(r)
+terra::animate(r, pause = 0.01, n = 1)
+
 
 plot(r[[4]], col = viridis::viridis(30, option = "E", direction = 1))
 plot(sf::st_geometry(au), add = TRUE)
-
-setMinMax(r)
-terra::animate(r, n = 3)
