@@ -4,6 +4,7 @@ library(sf)
 library(colorspace)
 library(RColorBrewer)
 
+
 con <- DBI::dbConnect(
   RPostgres::Postgres(),
   host = Sys.getenv("POSTGRES_HOST"),
@@ -14,6 +15,7 @@ con <- DBI::dbConnect(
 )
 au <- sf::st_read(con, layer = "aus_border")
 DBI::dbDisconnect(con)
+
 
 
 fl <- list.files("C://Users/61423/Desktop/GFStest/", pattern = "^gfs_ugrd")
@@ -30,8 +32,8 @@ plot(st_geometry(au), add = TRUE)
 
 
 # read U and V component for wind direction
-u_ms <- rast("C://Users/61423/Desktop/GFStest/gfs_ugrd_20220228_t18z_f000")
-v_ms <- rast("C://Users/61423/Desktop/GFStest/gfs_vgrd_20220228_t18z_f000")
+u_ms <- rast("C://Users/61423/Desktop/GFStest/gfs_ugrd_20220226_t00z_f000")
+v_ms <- rast("C://Users/61423/Desktop/GFStest/gfs_vgrd_20220226_t00z_f000")
 # calculate wind speed
 wind_abs <- sqrt(u_ms^2 + v_ms^2)
 plot(wind_abs)
@@ -63,7 +65,7 @@ ggplot(wind_dt,
        aes(x = Lon , 
            y = Lat, 
            fill = mean_wind, 
-           angle = wind_dir[c(TRUE, rep(NA, 100))], # causes some values not to plot
+           angle = wind_dir[c(TRUE, rep(NA, 55))], # causes some values not to plot
            radius = scales::rescale(mean_wind, c(0.5, 2)))) +
   geom_raster() +
   geom_spoke(arrow = grid::arrow(length = unit(0.05, 'inches'))) + 
