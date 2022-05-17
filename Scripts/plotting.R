@@ -142,17 +142,28 @@ rru <- rast(filesu)
 setMinMax(rru)
 
 rrs <- sqrt(rru^2 + rrv^2)
-plot(rrs, col = colpal(30))
+# plot(rrs, col = colpal(30))
 # calculate wind direction
 rrd <- atan2(rru/rrs, rrv/rrs)
 rrdd <- rrd * 180 / pi
 rrdd <- 90 - (rrdd + 180)
-plot(rrd, col = colpal(30))
+plot(rrdd[[1]], col = colpal(30))
 
 
-terra::animate(rrs)
-terra::animate(rrdd)
+# terra::animate(rrs)
+# terra::animate(rrdd)
+rrs[[1]] %>%
+  terra::crop(c(135, 155, -48, -35)) %>%
+  plot(col = viridis::viridis(30))
 
+
+rrs[[1:48]] %>%
+  terra::crop(c(135, 155, -48, -35)) %>%
+  terra::animate()
+
+rrdd[[1:48]] %>%
+  terra::crop(c(135, 155, -48, -35)) %>%
+  terra::animate()
 
 
 c(144.9481201, -37.7750568)
