@@ -28,6 +28,8 @@ pt <- read.csv("C:/Users/61423/Desktop/points.csv") %>%
   # st_geometry() %>%
   mutate(long = st_coordinates(.)[,1], lat = st_coordinates(.)[,2]) %>%
   identity()
+
+
 pt
 smline <- smooth.spline(x = st_coordinates(pt),
                         df = 4)
@@ -35,13 +37,20 @@ smline <- smooth.spline(x = st_coordinates(pt),
 # smline <- spline(x = st_coordinates(pt)[,1],
 #                  y = st_coordinates(pt)[,2])
 
+plot(r)
+# plot(terra::crop(r, c(130, 150, -45, -30)))
+# plot(terra::crop(r, c(135, 155, -45, -35)))
+# plot(terra::crop(r, c(130, 150, -20, -5)))
+border %>%
+  st_geometry() %>%
+  plot(add = TRUE, border = "gray30")
+plot(pt, col = "red", add = TRUE)
+# lines(pt$long, pt$lat, lwd = 2, col = "red")
+# lines(smline$x, smline$y, lwd = 2, col = "blue")
+
+
 xt <- c(135, 155, -45, -30)
 r_crop <- terra::crop(r, xt)
-
-r_crop[50, 50] <- 13
-r_crop[51, 51] <- 14
-r_crop[52, 52] <- 15
-plot(r_crop)
 
 gplot(r_crop, maxpixels = 500000) +
   geom_tile(aes(fill = value)) +
@@ -53,16 +62,6 @@ gplot(r_crop, maxpixels = 500000) +
   theme_minimal() +
   labs(x = "Longitude", y = "Latitude", fill = "Wind")
 
-# plot(r)
-plot(terra::crop(r, c(130, 150, -45, -30)))
-# plot(terra::crop(r, c(135, 155, -45, -35)))
-# plot(terra::crop(r, c(130, 150, -20, -5)))
-border %>%
-  st_geometry() %>%
-  plot(add = TRUE, border = "gray30")
-# plot(pt, col = "red", add = TRUE)
-# lines(pt$long, pt$lat, lwd = 2, col = "red")
-lines(smline$x, smline$y, lwd = 2, col = "blue")
 
 
 # r <- terra::crop(r, c(135, 155, -45, -35))
