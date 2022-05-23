@@ -1,4 +1,5 @@
 library(tidyverse)
+library(rasterVis)
 library(terra)
 library(sf)
 
@@ -66,28 +67,28 @@ read_v <- function(path = "Data/", files_list, fcast){
 next_cell <- function(x, i, j){
   inc <- 1
   # define the direction
-  if (x < 22.5 || x > 337.5){
+  if (x <= 22.5 || x > 337.5){
     ## N
     return(c(i, j + inc))
-  } else if (x > 22.5 && x < 67.5){
+  } else if (x > 22.5 && x <= 67.5){
     ## NE
     return(c(i - inc, j + inc))
-  } else if (x > 67.5 && x < 112.5){
+  } else if (x > 67.5 && x <= 112.5){
     ## E
     return(c(i - inc, j))
-  } else if (x > 112.5 && x < 157.5){
+  } else if (x > 112.5 && x <= 157.5){
     ## SE
     return(c(i - inc, j - inc))
-  } else if (x > 157.5 && x < 202.5){
+  } else if (x > 157.5 && x <= 202.5){
     ## S
     return(c(i, j - inc))
-  } else if (x > 202.5 && x < 247.5){
+  } else if (x > 202.5 && x <= 247.5){
     ## SW
     return(c(i + inc, j - inc))
-  } else if (x > 247.5 && x < 292.5){
+  } else if (x > 247.5 && x <= 292.5){
     ## W
     return(c(i + inc, j))
-  } else if (x > 292.5 && x < 337.5){
+  } else if (x > 292.5 && x <= 337.5){
     ## NW
     return(c(i + inc, j + inc))
   }
@@ -97,7 +98,7 @@ next_cell <- function(x, i, j){
 
 border <- st_read(dsn = .db_connect(), layer = 'aus_states')
 r <- terra::rast("Data/gfs_ugrd_20220522_t18z_f000")
-plot(r)
+# plot(r)
 
 xlen <- terra::ncol(r)
 ylen <- terra::nrow(r)
@@ -107,8 +108,8 @@ nforecast <- 24
 # cell size - can be calcualte with np.cos(np.radians(35)) * 111325 * 0.25
 cellsize <- 22000
 # starting point
-xx <- 151.523438
-yy <- -26.037042
+xx <- 130.781250
+yy <- -12.511665
 points <- data.frame(x = colFromX(r, xx),
                      y = rowFromY(r, yy))
 
@@ -199,7 +200,7 @@ r_crop <- r_crop / global(r_crop, max, na.rm = TRUE)[1,1]
 
 gplot(r_crop, maxpixels = 500000) +
   geom_tile(aes(fill = value), alpha = 0.8) +
-  viridis::scale_fill_viridis(na.value = NA) +
+  viridis::scale_fill_viridis(option = "A", na.value = NA) +
   # geom_point(data = pt, aes(x = long, y = lat, col = id), inherit.aes = FALSE) +
   geom_sf(data = st_crop(border, ext(xt)), inherit.aes = FALSE, fill = NA) +
   coord_sf(crs = 4326) +
