@@ -13,6 +13,24 @@ library(sf)
   )
 }
 
+# extract the component from names
+gfs_names <- function(path = "Data/"){
+  files <- list.files(path, pattern = "^gfs_")
+
+  gfs_names <- strsplit(files, "_") %>%
+    map(function(x){
+      matrix(x, ncol = 5, byrow = FALSE) %>%
+        as.data.frame() %>%
+        setNames(c("gfs", "comp", "date", "start", "forecast")) %>%
+        dplyr::select(-gfs)
+    }) %>%
+    do.call(rbind.data.frame, .) %>%
+    mutate(file = files) %>%
+    relocate(file)
+
+  return(gfs_names)
+}
+
 wind_direction <- function(u, v){
   at <- 180 + (atan2(u, v) * 180 / pi)
   ad <- terra::app(at, function(x) x %% 360)
@@ -24,157 +42,146 @@ wind_speed <- function(u, v){
   return(r)
 }
 
-direction <- function(x, i, j){
-  inc = 1
+
+# read the u component
+read_u <- function(path = "Data/", files_list, fcast){
+  files_list %>%
+    dplyr::filter(comp == "ugrd") %>%
+    dplyr::filter(forecast == fcast) %>%
+    pull(file) %>%
+    file.path(path, .) %>%
+    terra::rast()
+}
+# read the u component
+read_v <- function(path = "Data/", files_list, fcast){
+  files_list %>%
+    dplyr::filter(comp == "vgrd") %>%
+    dplyr::filter(forecast == fcast) %>%
+    pull(file) %>%
+    file.path(path, .) %>%
+    terra::rast()
+}
+
+
+next_cell <- function(x, i, j){
+  inc <- 1
   # define the direction
   if (x < 22.5 || x > 337.5){
     ## N
     return(c(i, j + inc))
   } else if (x > 22.5 && x < 67.5){
     ## NE
-    return(c(i + inc, j + inc))
+    return(c(i - inc, j + inc))
   } else if (x > 67.5 && x < 112.5){
     ## E
-    return(c(i + inc, j))
+    return(c(i - inc, j))
   } else if (x > 112.5 && x < 157.5){
     ## SE
-    return(c(i + inc, j - inc))
+    return(c(i - inc, j - inc))
   } else if (x > 157.5 && x < 202.5){
     ## S
     return(c(i, j - inc))
   } else if (x > 202.5 && x < 247.5){
     ## SW
-    return(c(i - inc, j - inc))
+    return(c(i + inc, j - inc))
   } else if (x > 247.5 && x < 292.5){
     ## W
-    return(c(i - inc, j))
+    return(c(i + inc, j))
   } else if (x > 292.5 && x < 337.5){
     ## NW
-    return(c(i - inc, j + inc))
+    return(c(i + inc, j + inc))
   }
 }
-
-
-class_dir <- function(x){
-  if (x <= 22.5 || x > 337.5){
-    # w <- 'N'
-    w <- 1
-  } else if (x > 22.5 && x <= 67.5){
-    # w <- 'NE'
-    w <- 2
-  } else if (x > 67.5 && x <= 112.5){
-    # w <- 'E'
-    w <- 3
-  } else if (x > 112.5 && x <= 157.5){
-    # w <- 'SE'
-    w <- 4
-  } else if (x > 157.5 && x <= 202.5){
-    # w <- 'S'
-    w <- 5
-  } else if (x > 202.5 && x <= 247.5){
-    # w <- 'SW'
-    w <- 6
-  } else if (x > 247.5 && x <= 292.5){
-    # w <- 'W'
-    w <- 7
-  } else if (x > 292.5 && x <= 337.5){
-    # w <- 'NW'
-    w <- 8
-  } else{
-    w <- 0
-  }
-  return(w)
-}
-
-class_dir(100)
-plot(dd)
-dd
-
-raster::calc(raster::raster(dd), fun = function(x) class_dir(x)) %>%
-  raster::as.factor() %>%
-  # rasterVis::levelplo1t() %>%
-  plot() %>%
-  identity()
-
-plot(st_geometry(border), add = TRUE)
-
 
 
 
 border <- st_read(dsn = .db_connect(), layer = 'aus_states')
+r <- terra::rast("Data/gfs_ugrd_20220522_t18z_f000")
+plot(r)
 
-plot(border)
+xlen <- terra::ncol(r)
+ylen <- terra::nrow(r)
 
-u <- rast("C:/Users/61423/Cesar_projects/WindDispersalFAW/Data/gfs_ugrd_20220518_t18z_f000")
-v <- rast("C:/Users/61423/Cesar_projects/WindDispersalFAW/Data/gfs_vgrd_20220518_t18z_f000")
-plot(u)
-plot(v)
+# 24 hours simulation
+nforecast <- 24
+# cell size - can be calcualte with np.cos(np.radians(35)) * 111325 * 0.25
+cellsize <- 22000
+# starting point
+# points = [[41, 10]]
+points <- data.frame(x = colFromX(r, 137.3510742),
+                     y = rowFromY(r, -32.3799615))
+
+# weights for the output
+wt <- c(1, 1, 1, 1, 3, 1, 1, 1, 1)
+
+# number of reapeats for simulation
+nrep <- 1
+
+files <- gfs_names(path = "Data/")
+
+fct_raster <- r
+fct_raster[] <- 0
+
+n <- 1
+for(f in seq_len(nforecast)){
+
+  x <- points[n, 1]
+  y <- points[n, 2]
+
+  forecasts <- unique(files$forecast)
+
+  u <- read_u(files_list = files, fcast = forecasts[f])
+  v <- read_v(files_list = files, fcast = forecasts[f])
+
+  speed <- wind_speed(u = u, v = v)
+  direction <- wind_direction(u = u, v = v)
+
+  speed_ctr <- speed[y, x][1,1]
+
+  # step <- max(1, ceiling(speed_ctr * 3600 / cellsize))
+  steps <- max(1, round(speed_ctr * 3600 / cellsize)) * 2
+
+  for(e in seq_len(steps)){
+    nbr_dir <- c()
+    nbr_spd <- c()
+    for(i in c(-1, 0, 1)){
+      for(j in c(-1, 0, 1)){
+        if(x + i < xlen && y + j < ylen){
+          nbr_dir <- c(nbr_dir, direction[y+j, x+i][1,1])
+          nbr_spd <- c(nbr_spd, speed[y+j, x+i][1,1])
+        }
+      }
+    }
+    # multiply the weight with the speeds
+    probs <- wt * nbr_spd
+    # add some randomness to the direction
+    selected_dir <- sample(x = nbr_spd, size = 1, prob = probs)
+    selected_dir <- selected_dir + runif(1, -30, 30)
+    # keep the random direction within 0-360
+    selected_dir <- selected_dir %% 360
+    # calculate the next point
+    newpoint <- next_cell(selected_dir, x, y)
+    fct_raster[newpoint[2], newpoint[1]] <- fct_raster[newpoint[2], newpoint[1]][1,1] + 1
+
+    n <- n + 1
+    points[n, "x"] <- newpoint[1]
+    points[n, "y"] <- newpoint[2]
+  }
+  if(n %% 5 == 0) cat("forecast:", n, "\n")
+
+}
 
 
-speed <- sqrt(u*u + v*v)
-plot(speed)
-plot(st_geometry(border), add = TRUE)
+tt <- fct_raster
+tt[tt == 0] <- NA
+xt <- c(130, 150, -45, -30)
+plot(terra::crop(tt, xt))
+plot(st_geometry(border), add = TRUE, border = "gray30")
 
-# rd = np.mod(180 + np.rad2deg(np.arctan2(r[r.Component == "ugrd"], r[r.Component == "vgrd"])), 360)
-
-
-dd <- wind_direction(u, v)
-sp <- wind_speed(u, v)
-
-
-xt <- c(135, 155, -45, -35)
-
-par(mfrow=c(1,2))
-plot(terra::crop(v, xt), main = "v component")
-plot(st_geometry(border), add = TRUE)
-plot(terra::crop(u, xt), main = "u component")
-plot(st_geometry(border), add = TRUE)
-
-
-
-
-wind_dt <- v %>%
-  # terra::crop(xt) %>%
-  as.data.frame(xy = TRUE)
-names(wind_dt) <- c("Lon", "Lat", "mean_wind")
-windir <- dd %>%
-  # terra::crop(xt) %>%
-  as.data.frame() %>%
-  setNames("wind_dir") %>%
-  mutate(wind_dir = wind_dir * pi / 180)
-names(windir)
-wind_dt <- cbind(wind_dt, windir)
-head(wind_dt)
-
-bord <- border %>%
-  # st_crop(ext(crop(sp, xt))) %>%
-  identity()
-
-# plot the wind direction
-ggplot(wind_dt,
-       aes(x = Lon ,
-           y = Lat,
-           fill = mean_wind,
-           angle = wind_dir[c(TRUE, rep(NA, 10))], # causes some values not to plot
-           radius = scales::rescale(mean_wind, c(0.5, 2)))) +
-  geom_raster() +
-  geom_spoke(arrow = grid::arrow(length = unit(0.05, 'inches'))) +
-  geom_sf(data = bord,
-          fill = NA,
-          inherit.aes = FALSE) +
-  scale_fill_distiller(palette = "RdYlGn") +
-  # coord_equal(expand = 0) +
-  theme_minimal() +
-  theme(legend.position = 'bottom',
-        legend.direction = 'horizontal') +
-  labs(fill = "Wind Speed", x = "Longitude", y = "Latitude")
-
-
-
-
-
-
-
+points %>%
+  mutate(long = xFromCol(r, x), lat = yFromRow(r, y)) %>%
+  dplyr::select(long, lat) %>%
+  points()
 
 
 

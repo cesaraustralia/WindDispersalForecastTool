@@ -3,10 +3,6 @@ library(terra)
 library(sf)
 library(rasterVis)
 
-
-r <- rast("C:/Users/61423/Cesar_projects/WindDispersalFAW/Data/gfs_ugrd_20220522_t18z_f000")
-plot(r)
-
 # connection to PostgreSQL database
 .db_connect <- function(){
   DBI::dbConnect(RPostgres::Postgres(),
@@ -20,47 +16,56 @@ plot(r)
 border <- st_read(dsn = .db_connect(), layer = 'aus_states')
 
 
+r <- rast("C:/Users/61423/Desktop/wind_ca.tif")
+r <- rast("C:/Users/61423/Cesar_projects/WindDispersalFAW/Data/gfs_ugrd_20220522_t18z_f000")
+
+
 pt <- read.csv("C:/Users/61423/Desktop/points.csv") %>%
   # select(x, y) %>%
   setNames(c("id", "x", "y")) %>%
   data.frame(x = xFromCol(r, .[,"x"]), y = yFromRow(r, .[,"y"])) %>%
-  st_as_sf(coords = c("x.1", "y.1")) %>%
+  st_as_sf(coords = c("x.1", "y.1"), crs = 4326) %>%
   # st_geometry() %>%
   mutate(long = st_coordinates(.)[,1], lat = st_coordinates(.)[,2]) %>%
   identity()
 pt
-smline <- smooth.spline(x = st_coordinates(pt)[,1],
-                 y = st_coordinates(pt)[,2],
-                 df = 4)
+smline <- smooth.spline(x = st_coordinates(pt),
+                        df = 4)
 
-smline$x
+# smline <- spline(x = st_coordinates(pt)[,1],
+#                  y = st_coordinates(pt)[,2])
 
 xt <- c(135, 155, -45, -30)
 r_crop <- terra::crop(r, xt)
+
+r_crop[50, 50] <- 13
+r_crop[51, 51] <- 14
+r_crop[52, 52] <- 15
+plot(r_crop)
 
 gplot(r_crop, maxpixels = 500000) +
   geom_tile(aes(fill = value)) +
   viridis::scale_fill_viridis() +
   # geom_point(data = pt, aes(x = long, y = lat, col = id), inherit.aes = FALSE) +
-  # geom_sf(data = st_crop(border, ext(xt)), inherit.aes = FALSE) +
+  geom_sf(data = st_crop(border, ext(xt)), inherit.aes = FALSE, fill = NA) +
   geom_sf(data = pt, aes(col = id), inherit.aes = FALSE) +
   coord_sf(crs = 4326) +
   theme_minimal() +
-  labs(x = "Longitude", y = "Latitude", fill = "Wind speed")
+  labs(x = "Longitude", y = "Latitude", fill = "Wind")
 
 # plot(r)
-plot(terra::crop(r, c(135, 155, -45, -30)))
+plot(terra::crop(r, c(130, 150, -45, -30)))
 # plot(terra::crop(r, c(135, 155, -45, -35)))
 # plot(terra::crop(r, c(130, 150, -20, -5)))
 border %>%
   st_geometry() %>%
   plot(add = TRUE, border = "gray30")
-plot(pt, col = "red", add = TRUE)
-lines(pt$long, pt$lat, lwd = 2, col = "blue")
-# lines(smline$x, smline$y, lwd = 2, col = "blue")
+# plot(pt, col = "red", add = TRUE)
+# lines(pt$long, pt$lat, lwd = 2, col = "red")
+lines(smline$x, smline$y, lwd = 2, col = "blue")
 
 
 # r <- terra::crop(r, c(135, 155, -45, -35))
-colFromX(r, 147.3596191)
-rowFromY(r, -35.0659731)
+colFromX(r, 137.3510742)
+rowFromY(r, -32.3799615)
 
