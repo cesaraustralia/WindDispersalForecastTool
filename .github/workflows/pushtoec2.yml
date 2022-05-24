@@ -22,4 +22,4 @@ jobs:
           SOURCE: "*"
           REMOTE_HOST: ${{ secrets.AWS_DNS }}
           REMOTE_USER: ${{ secrets.EC2_USER }}
-          TARGET: "/srv/shiny-server/\WindDispersalForecastTool/"
+          TARGET: "/srv/shiny-server/WindDispersalForecastTool/"
