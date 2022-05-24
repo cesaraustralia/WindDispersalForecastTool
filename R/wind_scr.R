@@ -1,12 +1,15 @@
 # extract the component from names
 gfs_names <- function(path = "Data/"){
-  files <- list.files(path, pattern = "^gfs_")
+  require(dplyr)
+  require(purrr)
+
+  files <- list.files(path, pattern = "^gfs_", recursive = FALSE)
 
   gfs_names <- strsplit(files, "_") %>%
     map(function(x){
-      matrix(x, ncol = 5, byrow = FALSE) %>%
+      matrix(x, ncol = 6, byrow = FALSE) %>%
         as.data.frame() %>%
-        setNames(c("gfs", "comp", "date", "start", "forecast")) %>%
+        setNames(c("gfs", "comp", "level", "date", "start", "forecast")) %>%
         dplyr::select(-gfs)
     }) %>%
     do.call(rbind.data.frame, .) %>%
@@ -17,30 +20,34 @@ gfs_names <- function(path = "Data/"){
 }
 
 wind_direction <- function(u, v){
+  require(terra)
   at <- 180 + (atan2(u, v) * 180 / pi)
   ad <- terra::app(at, function(x) x %% 360)
   return(ad)
 }
 
 wind_speed <- function(u, v){
+  require(terra)
   r <- sqrt(v*v + u*u)
   return(r)
 }
 
 
 # read the u component
-read_u <- function(path = "Data/", files_list, fcast){
+read_u <- function(path = "Data/", files_list, fcast, lev = "850mb"){
   files_list %>%
     dplyr::filter(comp == "ugrd") %>%
+    dplyr::filter(level == lev) %>%
     dplyr::filter(forecast == fcast) %>%
     pull(file) %>%
     file.path(path, .) %>%
     terra::rast()
 }
 # read the u component
-read_v <- function(path = "Data/", files_list, fcast){
+read_v <- function(path = "Data/", files_list, fcast, lev = "850mb"){
   files_list %>%
     dplyr::filter(comp == "vgrd") %>%
+    dplyr::filter(level == lev) %>%
     dplyr::filter(forecast == fcast) %>%
     pull(file) %>%
     file.path(path, .) %>%

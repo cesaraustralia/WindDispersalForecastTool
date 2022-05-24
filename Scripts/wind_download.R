@@ -11,7 +11,7 @@ download_wind <- function(dates,
                           components = c('VGRD', 'UGRD'),
                           level = 850,
                           outdir = "",
-                          dlmethod = NULL,
+                          dlmethod = NULL, # null select based on the OS
                           xleft = 100,
                           xright = 160,
                           ytop = 1,
@@ -57,7 +57,7 @@ download_wind <- function(dates,
   # add another for loop if you want more than one level
   for(i in  dates){
     for(j in seq_len(nforecast)){
-      # print(paste("forecast:", j))
+      print(paste("forecast:", j))
       j <- j - 1
       for(k in components){
         nf <- stringr::str_pad(string = as.character(j),

@@ -1,4 +1,5 @@
 .ipynb_checkpoints/
 venv/
 Data/
+SpatialData/
 .Rproj.user
