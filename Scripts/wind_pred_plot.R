@@ -16,6 +16,7 @@ library(rasterVis)
 border <- st_read(dsn = .db_connect(), layer = 'aus_states')
 
 
+
 r <- rast("C:/Users/61423/Desktop/wind_ca.tif")
 r <- rast("C:/Users/61423/Cesar_projects/WindDispersalFAW/Data/gfs_ugrd_20220522_t18z_f000")
 

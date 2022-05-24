@@ -1,6 +1,6 @@
 # Roozbeh Valavi
 # 2022-05-24
-
+#
 # download 0.25 degree GFS wind forecast from NOAA API
 # the portal only provides wind for the past few days
 # the name of the files are like "gfs_vgrd_850mb_20220521_t00z_f000":
@@ -9,7 +9,7 @@ download_wind <- function(dates,
                           time = c("00", "06", "12", "18"),
                           nforecast = 1,
                           components = c('VGRD', 'UGRD'),
-                          level = 850,
+                          level_mb = 850,
                           outdir = "",
                           dlmethod = NULL, # null select based on the OS
                           xleft = 100,
@@ -51,7 +51,7 @@ download_wind <- function(dates,
     outdir <- getwd()
   }
 
-
+  # the base url for sprintf
   base = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?file=gfs.t%sz.pgrb2.0p25.f%s&lev_%s_mb=on&var_%s=on&subregion=&leftlon=%s&rightlon=%s&toplat=%s&bottomlat=%s&dir=%%2Fgfs.%s%%2F%s%%2Fatmos"
 
   # add another for loop if you want more than one level
@@ -65,10 +65,10 @@ download_wind <- function(dates,
                                side = "left",
                                pad = "0")
 
-        name <- sprintf("gfs_%s_%smb_%s_t%sz_f%s", tolower(k), level, i, time, nf)
+        name <- sprintf("gfs_%s_%smb_%s_t%sz_f%s", tolower(k), level_mb, i, time, nf)
         out <- file.path(outdir, name)
 
-        url <- sprintf(base, time, nf, level, k, xleft, xright, ytop, ydown, i, time)
+        url <- sprintf(base, time, nf, level_mb, k, xleft, xright, ytop, ydown, i, time)
         # write the file to disk
         download.file(url, destfile = out, method = dlmethod)
 

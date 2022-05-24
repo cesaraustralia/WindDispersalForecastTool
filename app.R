@@ -1,30 +1,220 @@
 library(tidyverse)
 library(shiny)
+library(shinythemes)
+library(shinyWidgets)
+library(lubridate)
+library(leaflet)
 library(terra)
+library(rasterVis)
 library(sf)
+
 
 # read the wind functions
 source("R/wind_scr.R")
+source("R/wind_ca_model.R")
+
+# read Australian border
+border <- st_read("SpatialData/australia_states.gpkg", quiet = TRUE)
+# returns true or false
+xy_in_aus <- function(long, lat) {
+  data.frame(x = long, y = lat) %>%
+    sf::st_as_sf(coords = 1:2, crs = 4326) %>%
+    sf::st_transform(crs = sf::st_crs(border)) %>%
+    sf::st_intersection(sf::st_geometry(border)) %>%
+    nrow() != 0
+}
+
 
 ui <- shinyUI(
-  navbarPage("Wind Forecasting",
-             selected = "Forecasing",
+  navbarPage("Wind Forecast Tool",
+             selected = "Simulation",
              theme = "button.css",
 
              # Panel 1 -----------------------------------------------------------------
              tabPanel(
-               "Forecasing",
+               "Simulation",
+
+               column(
+                 width = 4,
+
+                 h5("Select meteorological forecast date"),
+                 shiny::splitLayout(
+                   dateInput("forec_date",
+                             label = NULL, #"Select meteorological forecast date",
+                             value = lubridate::today() - 1,
+                             min = "2022-05-22",
+                             max = lubridate::today() - 1,
+                             width = "100%"
+                   ),
+
+                   selectizeInput(inputId = "forec_time",
+                                  label = NULL, #"Select forecast start time",
+                                  choices = c("00", "06", "12", "18"),
+                                  options = list(dropdownParent = 'body',
+                                                 # render = I("function() {onItemAdd('value', '$item'); }"),
+                                                 create = 0),
+                                  selected = "18")
+                 ),
 
 
+                 sliderTextInput(inputId = "nforecast",
+                                 label = "Total run time (hours)",
+                                 choices = seq(6, 48, 6),
+                                 selected = 24,
+                                 grid = TRUE
+                 ),
 
+
+                 sliderTextInput(inputId = "nsim",
+                                 label = "Number of simulations",
+                                 choices = seq(1, 30, 1),
+                                 selected = 10,
+                                 grid = TRUE
+                 ),
+
+                 selectInput(inputId = "level",
+                             label = "Select atmospheric level",
+                             choices = c("850mb"),
+                             selected = "850mb",
+                             width = "100%"
+                 ),
+
+
+                 shiny::splitLayout(
+                   numericInput(inputId = "x",
+                                label = "Longitude",
+                                value = 145.0),
+                   numericInput(inputId = "y",
+                                label = "Latitude",
+                                value = -37.8)
+                 ),
+
+                 # HTML("<br/>"),
+                 shiny::htmlOutput("maptitle"),
+                 # show selected region
+                 span(textOutput("checklatlong"), style = "color:red"),
+                 # add a leaflet map
+                 leafletOutput("smap", height = 250),
+
+
+                 HTML("<br/>"),
+                 actionButton("run", "Run forecast"),
+                 HTML("<br/>")
+
+
+               ),
+               column(
+                 width = 8,
+                 plotOutput("prediction")
+
+               )
              )
 
   )
 )
 
 
-server <- function(input, output){
+server <- function(input, output, session){
 
+  wind_info <- reactiveValues()
+  wind_info$wind_path <- NULL
+  wind_info$predmap <- NULL
+  # get the wind data path
+  observe({
+    wind_info$wind_path <- sprintf("WindData/%s/%s",
+                                   format(as.Date(input$forec_date), "%Y%m%d"),
+                                   input$forec_time)
+  })
+
+
+  # set default values for click
+  input_coords <- reactiveValues()
+  input_coords$long <- 145.0
+  input_coords$lat <- -37.8
+  observe({
+    if (!is.null(input$smap_click)) {
+      if (xy_in_aus(input$smap_click$lng, input$smap_click$lat)) {
+        input_coords$long <- round(input$smap_click$lng, 3)
+        input_coords$lat <- round(input$smap_click$lat, 3)
+      }
+    }
+  })
+  # add the small map
+  output$smap <- renderLeaflet({
+    # isolate({
+      leaflet(options = leafletOptions(zoomControlPosition = "topright")) %>%
+        setView(lng = 135.51, lat = -25.98, zoom = 3) %>%
+        addTiles() %>%
+        addMarkers(lng = input_coords$long, lat = input_coords$lat)
+    # })
+  })
+  # update the click and marker without changing zoom and reloading
+  observeEvent(input$smap_click, {
+    leafletProxy("smap") %>%
+      clearMarkers() %>%
+      addMarkers(lng = input$smap_click$lng, lat = input$smap_click$lat)
+  })
+  # # update the map if x and y changes
+  # listen_to_xy <- reactive({
+  #   list(input$x, input$y)
+  # })
+  # # update the markers
+  # observeEvent(listen_to_xy(), {
+  #   input_coords$long <- round(input$x, 3)
+  #   input_coords$lat <- round(input$y, 3)
+  # })
+
+  # update the inputs based on click
+  observe({
+    updateNumericInput(session, "x",
+                       value = input_coords$long)
+    updateNumericInput(session, "y",
+                       value = input_coords$lat)
+  })
+
+
+
+
+  # run the simulation
+  observeEvent(input$run, {
+    # browser()
+    wind_info$predmap <- wind_sim(data_path = wind_info$wind_path,
+                                  long = input_coords$long,
+                                  lat = input_coords$lat,
+                                  nforecast = input$nforecast,
+                                  nsim = input$nsim,
+                                  atm_level = input$level)
+
+
+  })
+
+
+  output$prediction <- renderPlot({
+    # req(generate_plot())
+    # plot(generate_plot())
+    # save plot in home
+    # ggsave(filename = "~/phenology.png", plot = generate_plot(), device = 'png')
+    xt <- c(floor(input_coords$long) - 10,
+            floor(input_coords$long) + 10,
+            floor(input_coords$lat) - 10,
+            floor(input_coords$lat) + 10)
+
+    if(!is.null(wind_info$predmap)){
+
+      r_crop <- terra::crop(wind_info$predmap, xt)
+      r_crop <- r_crop / global(r_crop, max, na.rm = TRUE)[1,1] * 100
+
+      gplot(r_crop, maxpixels = 500000) +
+        geom_tile(aes(fill = value), alpha = 0.8) +
+        viridis::scale_fill_viridis(option = "A", na.value = NA) +
+        # geom_point(data = pt, aes(x = long, y = lat, col = id), inherit.aes = FALSE) +
+        geom_sf(data = st_crop(border, ext(xt)), inherit.aes = FALSE, fill = NA) +
+        coord_sf(crs = 4326) +
+        theme_minimal() +
+        labs(x = "Longitude", y = "Latitude", fill = "Frequency")
+    }
+
+  })
 
 }
 
