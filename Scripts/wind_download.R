@@ -1,10 +1,17 @@
+# Roozbeh Valavi
+# 2022-05-24
+
+# download 0.25 degree GFS wind forecast from NOAA API
+# the portal only provides wind for the past few days
+# the name of the files are like "gfs_vgrd_850mb_20220521_t00z_f000":
+# gfs, wind component, atmosphere level, data of forecast, forecast start time, forecast number
 download_wind <- function(dates,
                           time = c("00", "06", "12", "18"),
                           nforecast = 1,
                           components = c('VGRD', 'UGRD'),
                           level = 850,
                           outdir = "",
-                          dlmethod = c("curl", "wget"),
+                          dlmethod = NULL,
                           xleft = 100,
                           xright = 160,
                           ytop = 1,
@@ -14,7 +21,14 @@ download_wind <- function(dates,
 
   components <- toupper(components)
 
-  dlmethod <- dlmethod[1]
+  # choose download method based on operating system
+  if(is.null(dlmethod)){
+    if(.Platform$OS.type == "windows"){
+      dlmethod <- "curl"
+    } else if(.Platform$OS.type == "unix"){
+      dlmethod <- "wget"
+    }
+  }
 
   xleft <- as.character(xleft)
   xright <- as.character(xright)
@@ -50,6 +64,7 @@ download_wind <- function(dates,
                                width = 3,
                                side = "left",
                                pad = "0")
+
         name <- sprintf("gfs_%s_%smb_%s_t%sz_f%s", tolower(k), level, i, time, nf)
         out <- file.path(outdir, name)
 
@@ -61,10 +76,4 @@ download_wind <- function(dates,
     }
   }
 }
-
-
-download_wind(dates = c(20220521),
-              outdir = "C:/Users/61423/Desktop/",
-              time = 0,
-              nforecast = 3)
 
