@@ -3,6 +3,8 @@ library(shiny)
 library(terra)
 library(sf)
 
+# read the wind functions
+source("R/wind_scr.R")
 
 ui <- shinyUI(
   navbarPage("Wind Forecasting",
