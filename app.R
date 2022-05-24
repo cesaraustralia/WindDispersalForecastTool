@@ -2,6 +2,7 @@ library(tidyverse)
 library(shiny)
 library(shinythemes)
 library(shinyWidgets)
+library(shinycssloaders)
 library(lubridate)
 library(leaflet)
 library(terra)
@@ -15,6 +16,9 @@ source("R/wind_ca_model.R")
 
 # read Australian border
 border <- st_read("SpatialData/australia_states.gpkg", quiet = TRUE)
+
+## add the bbox of the raster as the allowed region
+
 # returns true or false
 xy_in_aus <- function(long, lat) {
   data.frame(x = long, y = lat) %>%
@@ -28,7 +32,7 @@ xy_in_aus <- function(long, lat) {
 ui <- shinyUI(
   navbarPage("Wind Forecast Tool",
              selected = "Simulation",
-             theme = "button.css",
+             # theme = shinytheme("yeti"),
 
              # Panel 1 -----------------------------------------------------------------
              tabPanel(
@@ -96,16 +100,16 @@ ui <- shinyUI(
                  # add a leaflet map
                  leafletOutput("smap", height = 250),
 
-
-                 HTML("<br/>"),
-                 actionButton("run", "Run forecast"),
-                 HTML("<br/>")
-
-
                ),
                column(
                  width = 8,
-                 plotOutput("prediction")
+
+                 HTML("<br/>"),
+                 actionButton("run", "Run forecast"),
+                 HTML("<br/>"),
+
+                 plotOutput("prediction") %>%
+                   withSpinner(color = "#428bca")# "#0dc5c1"
 
                )
              )
@@ -141,12 +145,12 @@ server <- function(input, output, session){
   })
   # add the small map
   output$smap <- renderLeaflet({
-    # isolate({
+    isolate({
       leaflet(options = leafletOptions(zoomControlPosition = "topright")) %>%
         setView(lng = 135.51, lat = -25.98, zoom = 3) %>%
         addTiles() %>%
         addMarkers(lng = input_coords$long, lat = input_coords$lat)
-    # })
+    })
   })
   # update the click and marker without changing zoom and reloading
   observeEvent(input$smap_click, {
@@ -211,7 +215,8 @@ server <- function(input, output, session){
         geom_sf(data = st_crop(border, ext(xt)), inherit.aes = FALSE, fill = NA) +
         coord_sf(crs = 4326) +
         theme_minimal() +
-        labs(x = "Longitude", y = "Latitude", fill = "Frequency")
+        labs(x = "Longitude", y = "Latitude", fill = "Frequency") +
+        ggtitle(paste("Wind dispersal forecast |", input$forec_date, "|", input$forec_time, "UTC"))
     }
 
   })

@@ -1,0 +1,25 @@
+name: Push-to-EC2
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  deploy:
+    name: Push to EC2 Instance
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@v1
+
+      - name: Deploy to Cesar production EC2 instance
+        uses: easingthemes/ssh-deploy@main
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SOURCE: "*"
+          REMOTE_HOST: ${{ secrets.AWS_DNS }}
+          REMOTE_USER: ${{ secrets.EC2_USER }}
+          TARGET: "/srv/shiny-server/\WindDispersalForecastTool/"
