@@ -194,14 +194,16 @@ server <- function(input, output, session){
 
 
   output$prediction <- renderPlot({
-    # req(generate_plot())
+    req(input$run)
     # plot(generate_plot())
-    # save plot in home
-    # ggsave(filename = "~/phenology.png", plot = generate_plot(), device = 'png')
-    xt <- c(floor(input_coords$long) - 10,
-            floor(input_coords$long) + 10,
-            floor(input_coords$lat) - 10,
-            floor(input_coords$lat) + 10)
+
+    isolate({
+
+      xt <- c(floor(input_coords$long) - 10,
+              floor(input_coords$long) + 10,
+              floor(input_coords$lat) - 10,
+              floor(input_coords$lat) + 10)
+    })
 
     if(!is.null(wind_info$predmap)){
 
@@ -218,6 +220,10 @@ server <- function(input, output, session){
         labs(x = "Longitude", y = "Latitude", fill = "Frequency") +
         ggtitle(paste("Wind dispersal forecast |", input$forec_date, "|", input$forec_time, "UTC"))
     }
+
+    # save plot in home
+    # ggsave(filename = "~/phenology.png", plot = generate_plot(), device = 'png')
+
 
   })
 
