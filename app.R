@@ -72,7 +72,7 @@ ui <- shinyUI(
                  sliderTextInput(inputId = "nsim",
                                  label = "Number of simulations",
                                  choices = seq(1, 30, 1),
-                                 selected = 10,
+                                 selected = 5,
                                  grid = TRUE
                  ),
 
@@ -194,16 +194,18 @@ server <- function(input, output, session){
 
 
   output$prediction <- renderPlot({
-    req(input$run)
     # plot(generate_plot())
 
+    req(input$run)
+
     isolate({
+
+    req(input$run)
 
       xt <- c(floor(input_coords$long) - 10,
               floor(input_coords$long) + 10,
               floor(input_coords$lat) - 10,
               floor(input_coords$lat) + 10)
-    })
 
     if(!is.null(wind_info$predmap)){
 
@@ -224,6 +226,7 @@ server <- function(input, output, session){
     # save plot in home
     # ggsave(filename = "~/phenology.png", plot = generate_plot(), device = 'png')
 
+    })
 
   })
 
