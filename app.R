@@ -232,6 +232,15 @@ server <- function(input, output, session){
           geom_sf(data = st_crop(border, ext(xt)), inherit.aes = FALSE, fill = NA) +
           coord_sf(crs = 4326) +
           theme_minimal() +
+          theme(
+            plot.title = element_text(size = 14),
+            axis.text = element_text(size = 14),
+            axis.title = element_text(size = 15),
+            legend.text = element_text(size = 13),
+            legend.title = element_text(size = 13),
+            axis.title.x = element_text(margin = margin(t = 15, r = 0, b = 0, l = 0)),
+            axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l = 0))
+          ) +
           labs(x = "Longitude", y = "Latitude", fill = "Frequency") +
           ggtitle(paste("Wind dispersal forecast - initiated at:", input$forec_date, input$forec_time, "UTC\n",
                         "Longitude:", input_coords$long, " ", "Latitude:", input_coords$lat))
