@@ -16,15 +16,15 @@ source("R/wind_ca_model.R")
 
 # read Australian border
 border <- st_read("SpatialData/australia_states.gpkg", quiet = TRUE)
-
-## add the bbox of the raster as the allowed region
+# add the bbox of the raster as the allowed region
+bound <- st_read("SpatialData/boundary.gpkg", quiet = TRUE)
 
 # returns true or false
 xy_in_aus <- function(long, lat) {
   data.frame(x = long, y = lat) %>%
     sf::st_as_sf(coords = 1:2, crs = 4326) %>%
-    sf::st_transform(crs = sf::st_crs(border)) %>%
-    sf::st_intersection(sf::st_geometry(border)) %>%
+    sf::st_transform(crs = sf::st_crs(bound)) %>%
+    sf::st_intersection(sf::st_geometry(bound)) %>%
     nrow() != 0
 }
 
@@ -41,7 +41,7 @@ ui <- shinyUI(
                column(
                  width = 4,
 
-                 h5("Select meteorological forecast date"),
+                 h5("Select meteorological forecast cycle"),
                  shiny::splitLayout(
                    dateInput("forec_date",
                              label = NULL, #"Select meteorological forecast date",
@@ -94,7 +94,6 @@ ui <- shinyUI(
                  ),
 
                  # HTML("<br/>"),
-                 shiny::htmlOutput("maptitle"),
                  # show selected region
                  span(textOutput("checklatlong"), style = "color:red"),
                  # add a leaflet map
@@ -108,7 +107,7 @@ ui <- shinyUI(
                  actionButton("run", "Run forecast"),
                  HTML("<br/>"),
 
-                 plotOutput("prediction") %>%
+                 plotOutput("prediction", height = "500px") %>%
                    withSpinner(color = "#428bca")# "#0dc5c1"
 
                )
@@ -123,7 +122,7 @@ server <- function(input, output, session){
   wind_info <- reactiveValues()
   wind_info$wind_path <- NULL
   wind_info$predmap <- NULL
-  # get the wind data path
+  # get the wind data path using date and start time
   observe({
     wind_info$wind_path <- sprintf("WindData/%s/%s",
                                    format(as.Date(input$forec_date), "%Y%m%d"),
@@ -146,9 +145,10 @@ server <- function(input, output, session){
   # add the small map
   output$smap <- renderLeaflet({
     isolate({
-      leaflet(options = leafletOptions(zoomControlPosition = "topright")) %>%
-        setView(lng = 135.51, lat = -25.98, zoom = 3) %>%
+      leaflet(bound) %>%
+        # setView(lng = 135.51, lat = -25.98, zoom = 3) %>%
         addTiles() %>%
+        addPolygons(fillOpacity = 0) %>%
         addMarkers(lng = input_coords$long, lat = input_coords$lat)
     })
   })
@@ -177,6 +177,17 @@ server <- function(input, output, session){
   })
 
 
+  # show coordinates with click
+  output$checklatlong <- renderText({
+    if (!is.null(input$smap_click)) {
+      if (!xy_in_aus(input$smap_click$lng, input$smap_click$lat)) {
+        "Selected location is not in the current forecasting range!"
+      } else {
+        NULL
+      }
+    }
+  })
+
 
 
   # run the simulation
@@ -198,33 +209,36 @@ server <- function(input, output, session){
 
     req(input$run)
 
+    # make plot only react to the run button
     isolate({
-
-    req(input$run)
 
       xt <- c(floor(input_coords$long) - 10,
               floor(input_coords$long) + 10,
               floor(input_coords$lat) - 10,
               floor(input_coords$lat) + 10)
 
-    if(!is.null(wind_info$predmap)){
+      pt <- data.frame(long = input_coords$long, lat = input_coords$lat)
 
-      r_crop <- terra::crop(wind_info$predmap, xt)
-      r_crop <- r_crop / global(r_crop, max, na.rm = TRUE)[1,1] * 100
+      if(!is.null(wind_info$predmap)){
 
-      gplot(r_crop, maxpixels = 500000) +
-        geom_tile(aes(fill = value), alpha = 0.8) +
-        viridis::scale_fill_viridis(option = "A", na.value = NA) +
-        # geom_point(data = pt, aes(x = long, y = lat, col = id), inherit.aes = FALSE) +
-        geom_sf(data = st_crop(border, ext(xt)), inherit.aes = FALSE, fill = NA) +
-        coord_sf(crs = 4326) +
-        theme_minimal() +
-        labs(x = "Longitude", y = "Latitude", fill = "Frequency") +
-        ggtitle(paste("Wind dispersal forecast |", input$forec_date, "|", input$forec_time, "UTC"))
-    }
+        r_crop <- terra::crop(wind_info$predmap, xt)
+        r_crop <- r_crop / global(r_crop, max, na.rm = TRUE)[1,1] * 100
 
-    # save plot in home
-    # ggsave(filename = "~/phenology.png", plot = generate_plot(), device = 'png')
+        gplot(r_crop, maxpixels = 500000) +
+          geom_tile(aes(fill = value), alpha = 0.8) +
+          viridis::scale_fill_viridis(option = "D", direction = -1, na.value = NA) +
+          geom_point(data = pt, aes(x = long, y = lat), inherit.aes = FALSE,
+                     col = "red", alpha = 0.8, shape = "\u2605", size = 7) +
+          geom_sf(data = st_crop(border, ext(xt)), inherit.aes = FALSE, fill = NA) +
+          coord_sf(crs = 4326) +
+          theme_minimal() +
+          labs(x = "Longitude", y = "Latitude", fill = "Frequency") +
+          ggtitle(paste("Wind dispersal forecast - initiated at:", input$forec_date, input$forec_time, "UTC\n",
+                        "Longitude:", input_coords$long, " ", "Latitude:", input_coords$lat))
+      }
+
+      # save plot in home
+      # ggsave(filename = "~/phenology.png", plot = generate_plot(), device = 'png')
 
     })
 

@@ -10,6 +10,17 @@ source("R/wind_ca_model.R")
 
 border <- st_read("SpatialData/australia_states.gpkg", quiet = TRUE)
 
+r <- rast("WindData/20220522/00/gfs_ugrd_850mb_20220522_t00z_f000")
+plot(r)
+
+r[r < 100] <- 1
+plot(r)
+
+r %>%
+  setNames("boundary") %>%
+  terra::as.polygons() %>%
+  st_as_sf() %>%
+  st_write("SpatialData/boundary.gpkg")
 
 
 # # 24 hours simulation
