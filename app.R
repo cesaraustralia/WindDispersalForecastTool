@@ -158,15 +158,15 @@ server <- function(input, output, session){
       clearMarkers() %>%
       addMarkers(lng = input$smap_click$lng, lat = input$smap_click$lat)
   })
-  # # update the map if x and y changes
-  # listen_to_xy <- reactive({
-  #   list(input$x, input$y)
-  # })
-  # # update the markers
-  # observeEvent(listen_to_xy(), {
-  #   input_coords$long <- round(input$x, 3)
-  #   input_coords$lat <- round(input$y, 3)
-  # })
+  # update the map if x and y changes
+  listen_to_xy <- reactive({
+    list(input$x, input$y)
+  })
+  # update the markers
+  observeEvent(listen_to_xy(), {
+    input_coords$long <- round(input$x, 3)
+    input_coords$lat <- round(input$y, 3)
+  })
 
   # update the inputs based on click
   observe({
@@ -242,8 +242,10 @@ server <- function(input, output, session){
             axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l = 0))
           ) +
           labs(x = "Longitude", y = "Latitude", fill = "Frequency") +
-          ggtitle(paste("Wind dispersal forecast - initiated at:", input$forec_date, input$forec_time, "UTC\n",
-                        "Longitude:", input_coords$long, " ", "Latitude:", input_coords$lat))
+          ggtitle(
+            sprintf("Wind dispersal forecast - initiated at: %s %s:00 UTC\nLongitude: %s  Latitude: %s",
+                    input$forec_date, input$forec_time, input_coords$long, input_coords$lat)
+          )
       }
 
       # save plot in home
