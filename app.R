@@ -15,7 +15,8 @@ source("R/wind_scr.R")
 source("R/wind_ca_model.R")
 
 # read Australian border
-border <- st_read("SpatialData/australia_states.gpkg", quiet = TRUE)
+border <- st_read("SpatialData/australia_states.gpkg", quiet = TRUE) %>%
+  sf::st_cast(to = "MULTILINESTRING")
 # add the bbox of the raster as the allowed region
 bound <- st_read("SpatialData/boundary.gpkg", quiet = TRUE)
 
@@ -46,7 +47,7 @@ ui <- shinyUI(
                    dateInput("forec_date",
                              label = NULL, #"Select meteorological forecast date",
                              value = lubridate::today() - 1,
-                             min = "2022-05-22",
+                             min = "2022-05-23",
                              max = lubridate::today() - 1,
                              width = "100%"
                    ),
@@ -124,7 +125,7 @@ server <- function(input, output, session){
   wind_info$predmap <- NULL
   # get the wind data path using date and start time
   observe({
-    wind_info$wind_path <- sprintf("WindData/%s/%s",
+    wind_info$wind_path <- sprintf("wind-data/%s/%s",
                                    format(as.Date(input$forec_date), "%Y%m%d"),
                                    input$forec_time)
   })
@@ -146,7 +147,7 @@ server <- function(input, output, session){
   output$smap <- renderLeaflet({
     isolate({
       leaflet(bound) %>%
-        # setView(lng = 135.51, lat = -25.98, zoom = 3) %>%
+        setView(lng = 135.51, lat = -25.98, zoom = 3) %>%
         addTiles() %>%
         addPolygons(fillOpacity = 0) %>%
         addMarkers(lng = input_coords$long, lat = input_coords$lat)
@@ -212,10 +213,10 @@ server <- function(input, output, session){
     # make plot only react to the run button
     isolate({
 
-      xt <- c(floor(input_coords$long) - 10,
-              floor(input_coords$long) + 10,
-              floor(input_coords$lat) - 10,
-              floor(input_coords$lat) + 10)
+      xt <- c(floor(input_coords$long) - 7,
+              floor(input_coords$long) + 7,
+              floor(input_coords$lat) - 6,
+              floor(input_coords$lat) + 6)
 
       pt <- data.frame(long = input_coords$long, lat = input_coords$lat)
 
@@ -243,8 +244,9 @@ server <- function(input, output, session){
           ) +
           labs(x = "Longitude", y = "Latitude", fill = "Frequency") +
           ggtitle(
-            sprintf("Wind dispersal forecast - initiated at: %s %s:00 UTC\nLongitude: %s  Latitude: %s",
-                    input$forec_date, input$forec_time, input_coords$long, input_coords$lat)
+            sprintf("Forecast initiated at %s %s:00 UTC | Duration: %s hours\nLongitude: %s  Latitude: %s",
+                    input$forec_date, input$forec_time, input$nforecast,
+                    input_coords$long, input_coords$lat)
           )
       }
 

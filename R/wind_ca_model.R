@@ -2,13 +2,13 @@
 # 2022-05-24
 #
 # simulate wind dispersal with cellular automata
-wind_sim <- function(data_path = "Data/",
+wind_sim <- function(data_path = "wind-data/",
                      long = 145,
                      lat = -37.8,
                      nforecast = 24, # number of forward forecast hours
                      nsim = 10, # number of simulations to calculate frequency
                      atm_level = "850mb",
-                     cellsize = 22000){
+                     cellsize = 25000){
 
   require(tidyverse)
   require(terra)
@@ -20,7 +20,7 @@ wind_sim <- function(data_path = "Data/",
   # empty raster for simulations
   fct_raster <- r
   fct_raster[] <- 0
-  names(fct_raster) <- "wind_forcast"
+  names(fct_raster) <- "wind_forecast"
 
   xlen <- terra::ncol(r)
   ylen <- terra::nrow(r)
@@ -51,8 +51,16 @@ wind_sim <- function(data_path = "Data/",
 
       speed_ctr <- speed[y, x][1,1]
 
-      steps <- max(1, ceiling(speed_ctr * 3600 / cellsize)) * 2
-      # steps <- max(1, round(speed_ctr * 3600 / cellsize)) * 2
+      ## calculate the number of steps based on wind speed and cell size
+      # if we choose at least 1 step each time we might can have too many steps overall
+      # when the speed is low, and result in overshooting, i.e. trajectoies longer than reality
+      # this could be happening because of course raster resolution
+      # so I made it random, to have some movement with low wind speed, but not alway
+      # better solution is possible; saving distance when lower than one cell?
+      steps <- max(sample(0:1, 1), round(speed_ctr * 3600 / cellsize))
+      # steps <- max(1, floor(speed_ctr * 3600 / cellsize))
+
+      if(steps < 1) next
 
       for(e in seq_len(steps)){
         nbr_dir <- c()
