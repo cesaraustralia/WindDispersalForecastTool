@@ -57,8 +57,8 @@ wind_sim <- function(data_path = "wind-data/",
       # this could be happening because of course raster resolution
       # so I made it random, to have some movement with low wind speed, but not alway
       # better solution is possible; saving distance when lower than one cell?
-      steps <- max(sample(0:1, 1), round(speed_ctr * 3600 / cellsize))
-      # steps <- max(1, floor(speed_ctr * 3600 / cellsize))
+      steps <- max(sample(0:1, 1), ceiling(speed_ctr * 3600 / cellsize))
+      # steps <- max(1, ceiling(speed_ctr * 3600 / cellsize))
 
       if(steps < 1) next
 

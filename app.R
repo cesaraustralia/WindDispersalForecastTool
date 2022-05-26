@@ -15,7 +15,7 @@ source("R/wind_scr.R")
 source("R/wind_ca_model.R")
 
 # read Australian border
-border <- st_read("SpatialData/australia_states.gpkg", quiet = TRUE) %>%
+border <- st_read("SpatialData/borders.gpkg", quiet = TRUE) %>%
   sf::st_cast(to = "MULTILINESTRING")
 # add the bbox of the raster as the allowed region
 bound <- st_read("SpatialData/boundary.gpkg", quiet = TRUE)
@@ -213,10 +213,10 @@ server <- function(input, output, session){
     # make plot only react to the run button
     isolate({
 
-      xt <- c(floor(input_coords$long) - 7,
-              floor(input_coords$long) + 7,
-              floor(input_coords$lat) - 6,
-              floor(input_coords$lat) + 6)
+      xt <- c(floor(input_coords$long) - 12,
+              floor(input_coords$long) + 12,
+              floor(input_coords$lat) - 10,
+              floor(input_coords$lat) + 10)
 
       pt <- data.frame(long = input_coords$long, lat = input_coords$lat)
 
