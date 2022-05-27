@@ -31,7 +31,7 @@ xy_in_aus <- function(long, lat) {
 
 
 ui <- shinyUI(
-  navbarPage("Wind Forecast Tool",
+  navbarPage("Wind Forecast Tool v0.1",
              selected = "Simulation",
              # theme = shinytheme("yeti"),
 

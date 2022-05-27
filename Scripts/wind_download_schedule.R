@@ -22,3 +22,6 @@ for(i in  c("00", "06", "12", "18")){
 
 }
 
+# r <-  terra::rast("https://s3-ap-southeast-2.amazonaws.com/silo-open-data/daily/max_temp/2018/20180103.max_temp.tif")
+# inMemory(r)
+# terra::sources(r)
