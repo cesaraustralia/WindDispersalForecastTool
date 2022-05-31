@@ -33,6 +33,7 @@ plot(r)
 inMemory(r)
 terra::sources(r)
 
+terra::rast("https://gwtiioyhfg.execute-api.ap-southeast-2.amazonaws.com/api/cesar-storage/wind-data/20220530/18/gfs_ugrd_850mb_20220530_t18z_f000")
 
 r <- rast("WindData/20220522/00/gfs_ugrd_850mb_20220522_t00z_f000")
 plot(r)

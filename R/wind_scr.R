@@ -1,23 +1,23 @@
-# # extract the component from names
-# gfs_names <- function(path = "Data/"){
-#   require(dplyr)
-#   require(purrr)
-#
-#   files <- list.files(path, pattern = "^gfs_", recursive = FALSE)
-#
-#   gfs_names <- strsplit(files, "_") %>%
-#     map(function(x){
-#       matrix(x, ncol = 6, byrow = FALSE) %>%
-#         as.data.frame() %>%
-#         setNames(c("gfs", "comp", "level", "date", "start", "forecast")) %>%
-#         dplyr::select(-gfs)
-#     }) %>%
-#     do.call(rbind.data.frame, .) %>%
-#     mutate(file = files) %>%
-#     relocate(file)
-#
-#   return(gfs_names)
-# }
+# extract the component from names
+gfs_names <- function(path = "Data/"){
+  require(dplyr)
+  require(purrr)
+
+  files <- list.files(path, pattern = "^gfs_", recursive = FALSE)
+
+  gfs_names <- strsplit(files, "_") %>%
+    map(function(x){
+      matrix(x, ncol = 6, byrow = FALSE) %>%
+        as.data.frame() %>%
+        setNames(c("gfs", "comp", "level", "date", "start", "forecast")) %>%
+        dplyr::select(-gfs)
+    }) %>%
+    do.call(rbind.data.frame, .) %>%
+    mutate(file = files) %>%
+    relocate(file)
+
+  return(gfs_names)
+}
 
 wind_direction <- function(u, v){
   require(terra)
@@ -34,37 +34,37 @@ wind_speed <- function(u, v){
 
 
 
-wind_name <- function(url, comp = c("ugrd", "vgrd"), lev = "850mb", date, hour, fcast){
-  comp <- match.arg(comp)
-  name <- sprintf("%s/gfs_%s_%s_%s_t%sz_%s", url, comp, lev, date, hour, fcast)
-  return(name)
-}
-
-forecast_names <- function(num = 48){
-  num <- num -1
-  nm <- paste0("f0", stringr::str_pad(0:num, pad = "0", width = 2, side = "left"))
-}
-
-# # read the u component
-# read_u <- function(path = "Data/", files_list, fcast, lev = "850mb"){
-#   files_list %>%
-#     dplyr::filter(comp == "ugrd") %>%
-#     dplyr::filter(level == lev) %>%
-#     dplyr::filter(forecast == fcast) %>%
-#     pull(file) %>%
-#     file.path(path, .) %>%
-#     terra::rast()
+# wind_name <- function(url, comp = c("ugrd", "vgrd"), lev = "850mb", date, hour, fcast){
+#   comp <- match.arg(comp)
+#   name <- sprintf("%s/gfs_%s_%s_%s_t%sz_%s", url, comp, lev, date, hour, fcast)
+#   return(name)
 # }
-# # read the u component
-# read_v <- function(path = "Data/", files_list, fcast, lev = "850mb"){
-#   files_list %>%
-#     dplyr::filter(comp == "vgrd") %>%
-#     dplyr::filter(level == lev) %>%
-#     dplyr::filter(forecast == fcast) %>%
-#     pull(file) %>%
-#     file.path(path, .) %>%
-#     terra::rast()
+#
+# forecast_names <- function(num = 48){
+#   num <- num -1
+#   nm <- paste0("f0", stringr::str_pad(0:num, pad = "0", width = 2, side = "left"))
 # }
+
+# read the u component
+read_u <- function(path = "Data/", files_list, fcast, lev = "850mb"){
+  files_list %>%
+    dplyr::filter(comp == "ugrd") %>%
+    dplyr::filter(level == lev) %>%
+    dplyr::filter(forecast == fcast) %>%
+    pull(file) %>%
+    file.path(path, .) %>%
+    terra::rast()
+}
+# read the u component
+read_v <- function(path = "Data/", files_list, fcast, lev = "850mb"){
+  files_list %>%
+    dplyr::filter(comp == "vgrd") %>%
+    dplyr::filter(level == lev) %>%
+    dplyr::filter(forecast == fcast) %>%
+    pull(file) %>%
+    file.path(path, .) %>%
+    terra::rast()
+}
 
 
 next_cell <- function(x, i, j){
