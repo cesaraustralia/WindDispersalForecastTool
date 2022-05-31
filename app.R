@@ -16,7 +16,7 @@ source("R/wind_ca_model.R")
 
 # gdal option to allow terra read raster files with http links
 # without this terra can't read files with http from S3 bucket API
-# setGDALconfig("GDAL_HTTP_UNSAFESSL", "YES")
+setGDALconfig("GDAL_HTTP_UNSAFESSL", "YES")
 
 # read Australian border
 border <- st_read("SpatialData/borders.gpkg", quiet = TRUE) %>%
