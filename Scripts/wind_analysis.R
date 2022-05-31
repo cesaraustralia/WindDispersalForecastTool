@@ -10,6 +10,30 @@ source("R/wind_ca_model.R")
 
 border <- st_read("SpatialData/australia_states.gpkg", quiet = TRUE)
 
+
+
+"https://s3-ap-southeast-2.amazonaws.com/silo-open-data/daily/max_temp/2018/20180103.max_temp.tif"
+
+terra::rast("/vsicurl/https://s3-ap-southeast-2.amazonaws.com/silo-open-data/daily/max_temp/2018/20180103.max_temp.tif")
+
+
+r <- terra::rast("/vsicurl/https://wv1obkjnbf.execute-api.ap-southeast-2.amazonaws.com/dev/cesar-test-bucket1/wind-data/20220525/00/gfs_ugrd_850mb_20220525_t00z_f010")
+r <- terra::rast("https://wv1obkjnbf.execute-api.ap-southeast-2.amazonaws.com/dev/cesar-test-bucket1/wind-data/20220525/00/gfs_ugrd_850mb_20220525_t00z_f000")
+
+
+setGDALconfig("GDAL_HTTP_UNSAFESSL", "YES")
+
+
+list.files("https://gwtiioyhfg.execute-api.ap-southeast-2.amazonaws.com/api/cesar-storage/wind-data/20220524/00/")
+
+## cesar produciton wind api
+"https://gwtiioyhfg.execute-api.ap-southeast-2.amazonaws.com/api/cesar-storage/wind-data"
+r <- terra::rast("https://gwtiioyhfg.execute-api.ap-southeast-2.amazonaws.com/api/cesar-storage/wind-data/20220524/00/gfs_ugrd_850mb_20220524_t00z_f000")
+plot(r)
+inMemory(r)
+terra::sources(r)
+
+
 r <- rast("WindData/20220522/00/gfs_ugrd_850mb_20220522_t00z_f000")
 plot(r)
 

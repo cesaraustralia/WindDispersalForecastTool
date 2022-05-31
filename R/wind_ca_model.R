@@ -7,17 +7,25 @@ wind_sim <- function(data_path = "wind-data/",
                      lat = -37.8,
                      nforecast = 24, # number of forward forecast hours
                      nsim = 10, # number of simulations to calculate frequency
+                     fdate = "20220524", # the forecast data
+                     fhour = "18", # the forecast hour
                      atm_level = "850mb",
                      cellsize = 25000){
 
   require(tidyverse)
   require(terra)
 
-  files <- gfs_names(path = data_path)
+  # files <- gfs_names(path = data_path)
+  forecasts <- forecast_names(48) # total forecasts
 
   # get a template raster
-  r <- terra::rast(file.path(data_path, files$file[1]))
-  # empty raster for simulations
+  r <- terra::rast(wind_name(url = data_path,
+                             comp = "ugrd",
+                             lev = atm_level,
+                             date = fdate,
+                             hour = fhour,
+                             fcast = forecasts[1]))
+# empty raster for simulations
   fct_raster <- r
   fct_raster[] <- 0
   names(fct_raster) <- "wind_forecast"
@@ -41,11 +49,25 @@ wind_sim <- function(data_path = "wind-data/",
       x <- points[n, 1]
       y <- points[n, 2]
 
-      forecasts <- unique(files$forecast)
+      # forecasts <- unique(files$forecast)
 
-      u <- read_u(path = data_path, files_list = files, fcast = forecasts[f], lev = atm_level)
-      v <- read_v(path = data_path, files_list = files, fcast = forecasts[f], lev = atm_level)
+      # u <- read_u(path = data_path, files_list = files, fcast = forecasts[f], lev = atm_level)
+      # v <- read_v(path = data_path, files_list = files, fcast = forecasts[f], lev = atm_level)
 
+      u <- terra::rast(wind_name(url = data_path,
+                                 comp = "ugrd",
+                                 lev = atm_level,
+                                 date = fdate,
+                                 hour = fhour,
+                                 fcast = forecasts[f]))
+      v <- terra::rast(wind_name(url = data_path,
+                                 comp = "vgrd",
+                                 lev = atm_level,
+                                 date = fdate,
+                                 hour = fhour,
+                                 fcast = forecasts[f]))
+
+      # calculate wind speed and direction
       speed <- wind_speed(u = u, v = v)
       direction <- wind_direction(u = u, v = v)
 

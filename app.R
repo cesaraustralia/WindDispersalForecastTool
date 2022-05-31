@@ -14,6 +14,10 @@ library(sf)
 source("R/wind_scr.R")
 source("R/wind_ca_model.R")
 
+# gdal option to allow terra read raster files with http links
+# without this terra can't read files with http from S3 bucket API
+# setGDALconfig("GDAL_HTTP_UNSAFESSL", "YES")
+
 # read Australian border
 border <- st_read("SpatialData/borders.gpkg", quiet = TRUE) %>%
   sf::st_cast(to = "MULTILINESTRING")
@@ -29,6 +33,8 @@ xy_in_aus <- function(long, lat) {
     nrow() != 0
 }
 
+# base url for Cesar S3 API for wind data
+apiurl <- "https://gwtiioyhfg.execute-api.ap-southeast-2.amazonaws.com/api/cesar-storage/wind-data"
 
 ui <- shinyUI(
   navbarPage("Wind Forecast Tool v0.1",
@@ -47,7 +53,7 @@ ui <- shinyUI(
                    dateInput("forec_date",
                              label = NULL, #"Select meteorological forecast date",
                              value = lubridate::today() - 1,
-                             min = "2022-05-23",
+                             min = "2022-05-22",
                              max = lubridate::today() - 1,
                              width = "100%"
                    ),
@@ -124,8 +130,10 @@ server <- function(input, output, session){
   wind_info$wind_path <- NULL
   wind_info$predmap <- NULL
   # get the wind data path using date and start time
+  # /20220524/00/gfs_ugrd_850mb_20220524_t00z_f000
   observe({
-    wind_info$wind_path <- sprintf("wind-data/%s/%s",
+    wind_info$wind_path <- sprintf("%s/%s/%s",
+                                   apiurl,
                                    format(as.Date(input$forec_date), "%Y%m%d"),
                                    input$forec_time)
   })
@@ -193,14 +201,15 @@ server <- function(input, output, session){
 
   # run the simulation
   observeEvent(input$run, {
-    # browser()
+
     wind_info$predmap <- wind_sim(data_path = wind_info$wind_path,
                                   long = input_coords$long,
                                   lat = input_coords$lat,
                                   nforecast = input$nforecast,
                                   nsim = input$nsim,
+                                  fdate = format(as.Date(input$forec_date), "%Y%m%d"),
+                                  fhour = input$forec_time,
                                   atm_level = input$level)
-
 
   })
 
@@ -213,10 +222,10 @@ server <- function(input, output, session){
     # make plot only react to the run button
     isolate({
 
-      xt <- c(floor(input_coords$long) - 12,
-              floor(input_coords$long) + 12,
-              floor(input_coords$lat) - 10,
-              floor(input_coords$lat) + 10)
+      xt <- c(floor(input_coords$long) - 18,
+              floor(input_coords$long) + 18,
+              floor(input_coords$lat) - 15,
+              floor(input_coords$lat) + 15)
 
       pt <- data.frame(long = input_coords$long, lat = input_coords$lat)
 
