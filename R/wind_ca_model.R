@@ -10,7 +10,8 @@ wind_sim <- function(data_path = "wind-data/",
                      fdate = "20220524", # the forecast data
                      fhour = "18", # the forecast hour
                      atm_level = "850mb",
-                     cellsize = 25000){
+                     cellsize = 25000,
+                     full = F){ # if TRUE, generate a dataframe of endpoints per time step
 
   require(tidyverse)
   require(terra)
@@ -39,14 +40,15 @@ wind_sim <- function(data_path = "wind-data/",
   xlen <- terra::ncol(r)
   ylen <- terra::nrow(r)
 
-  points <- data.frame(x = colFromX(r, long),
-                       y = rowFromY(r, lat))
-
   # weights for the output
   wt <- c(1, 1, 1, 1, 3, 1, 1, 1, 1)
 
+  points_full <- tibble(x = numeric(), y = numeric(), nsim = numeric())
 
   for(rep in seq_len(nsim)){
+
+    points <- data.frame(x = colFromX(r, long),
+                         y = rowFromY(r, lat))
 
     n <- 1
 
@@ -122,10 +124,18 @@ wind_sim <- function(data_path = "wind-data/",
       }
     }
     cat("simulation:", rep, "\n")
+
+    if(full)
+      points_full <- bind_rows(points_full,
+                               as_tibble(xyFromCell(r,
+                                                    cellFromRowCol(r, points[,"y"], points[,"x"]))) %>%
+                                 mutate(nsim = rep))
   }
 
   fct_raster[fct_raster == 0] <- NA
   # add point or smoothing spline lines? as an option?
-  return(fct_raster)
+  if(full)
+    return(list(fct_raster, points_full)) else
+      return(fct_raster)
 }
 

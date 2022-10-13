@@ -1,3 +1,10 @@
 .ipynb_checkpoints/
 venv/
 .Rproj.user
+CA-output/
+HYSPLIT-output/
+wind-data/
+Figures/random_points.pdf
+Figures/trajectories.pdf
+.Rhistory
+.RData

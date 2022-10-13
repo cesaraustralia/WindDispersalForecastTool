@@ -12,12 +12,14 @@ download_wind <- function(dates,
                           level_mb = 850,
                           outdir = "",
                           dlmethod = NULL, # null select based on the OS
-                          xleft = 100,
-                          xright = 160,
-                          ytop = 1,
-                          ydown = -50){
+                          xleft = 90,
+                          xright = 170,
+                          ytop = 10,
+                          ydown = -60){
 
   require(stringr)
+
+  dates <- stringr::str_remove_all(dates, "-")
 
   components <- toupper(components)
 
@@ -55,7 +57,7 @@ download_wind <- function(dates,
   base = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?file=gfs.t%sz.pgrb2.0p25.f%s&lev_%s_mb=on&var_%s=on&subregion=&leftlon=%s&rightlon=%s&toplat=%s&bottomlat=%s&dir=%%2Fgfs.%s%%2F%s%%2Fatmos"
 
   # add another for loop if you want more than one level
-  for(i in  dates){
+  for(i in dates){
     for(j in seq_len(nforecast)){
       print(paste("forecast:", j))
       j <- j - 1
