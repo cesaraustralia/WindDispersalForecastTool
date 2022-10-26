@@ -59,9 +59,9 @@ ui <- shinyUI(
                    # ),
                    dateInput("forec_date",
                              label = NULL, #"Select meteorological forecast date",
-                             value = lubridate::today("UTC")-1,
-                             min = lubridate::today("UTC")-14,
-                             max = lubridate::today("UTC")-1,
+                             value = "2022-05-30",
+                             min = "2022-05-22",
+                             max = "2022-05-30",
                              width = "100%"
                    ),
 

@@ -55,7 +55,7 @@ read_u <- function(path = "Data/", files_list, fcast, lev = "850mb"){
     file.path(path, .) %>%
     terra::rast()
 }
-# read the v component
+# read the u component
 read_v <- function(path = "Data/", files_list, fcast, lev = "850mb"){
   files_list %>%
     dplyr::filter(comp == "vgrd") %>%

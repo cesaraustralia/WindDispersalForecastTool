@@ -4,7 +4,6 @@ venv/
 CA-output/
 HYSPLIT-output/
 wind-data/
-Figures/random_points.pdf
-Figures/trajectories.pdf
+Figures/
 .Rhistory
 .RData
