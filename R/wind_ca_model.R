@@ -23,7 +23,6 @@ wind_sim <- function(data_path = "wind-data/",
   require(terra)
 
   files <- gfs_names(path = data_path)
-  seeds <- sample(seq(1, length(coords)*10), length(coords))
 
   if(parallel){
     require(doParallel)
@@ -42,20 +41,12 @@ wind_sim <- function(data_path = "wind-data/",
     registerDoParallel(cl)
 
     npoint <- foreach(point = 1:length(coords), .packages = c("tidyverse", "terra"), .export = c("read_u", "read_v", "wind_speed", "wind_direction", "next_cell")) %dopar% {
-      points <- data.frame(x = colFromX(r, long),
-                           y = rowFromY(r, lat))
-
-      # weights for the output
-      wt <- c(1, 1, 1, 1, 3, 1, 1, 1, 1)
 
       r <- terra::rast(file.path(data_path, files$file[1]))
-
-      set.seed(seeds[point])
 
       # extract coordinates
       long = coords[[point]][1]
       lat = coords[[point]][2]
-      n <- 1
 
       # empty raster for simulations
       fct_raster <- r
@@ -133,26 +124,25 @@ wind_sim <- function(data_path = "wind-data/",
             points[n, "nforecast"] <- f
           }
         }
+
+        if (full)
+          points_full <- bind_rows(points_full,
+                                   as_tibble(xyFromCell(r,
+                                                        cellFromRowCol(r,
+                                                                       points[,"y"],
+                                                                       points[,"x"]))) %>%
+                                     mutate(nsim = rep,
+                                            nforecast = points$nforecast,
+                                            x_start = long,
+                                            y_start = lat))
       }
 
-      if(full){
-        points_full <- bind_rows(points_full,
-                                 as_tibble(xyFromCell(r,
-                                                      cellFromRowCol(r,
-                                                                     points[,"y"],
-                                                                     points[,"x"]))) %>%
-                                   mutate(nsim = rep,
-                                          nforecast = points$nforecast,
-                                          x_start = long,
-                                          y_start = lat))
-        list(raster::raster(fct_raster), points_full)
-
-      } else
-        raster::raster(fct_raster)
+      if(full)
+        list(raster::raster(fct_raster), points_full) else
+          raster::raster(fct_raster)
     }
     stopCluster(cl)
   } else {
-
     r <- terra::rast(file.path(data_path, files$file[1]))
 
     npoint <- list()
@@ -161,8 +151,6 @@ wind_sim <- function(data_path = "wind-data/",
     progress_bar = txtProgressBar(min=0, max=length(coords), style = 3, char="=")
 
     for(point in 1:length(coords)){
-      set.seed(seeds[point])
-
       # extract coordinates
       long = coords[[point]][1]
       lat = coords[[point]][2]
@@ -244,7 +232,7 @@ wind_sim <- function(data_path = "wind-data/",
           }
         }
 
-        if(full){
+        if(full) {
           points_full <- bind_rows(points_full,
                                    as_tibble(xyFromCell(r,
                                                         cellFromRowCol(r,
@@ -276,11 +264,5 @@ wind_sim <- function(data_path = "wind-data/",
     fct_raster[fct_raster == 0] <- NA
     return(rast(fct_raster))
   }
-  cat("simulation:", rep, "\n")
-}
-
-fct_raster[fct_raster == 0] <- NA
-# add point or smoothing spline lines? as an option?
-return(fct_raster)
 }
 

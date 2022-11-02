@@ -30,7 +30,7 @@ n_movement <- wind_sim(data_path = c("wind-data/20221011/00"), coords = n_points
                        nsim = 8, nforecast = 48, atm_level = "850mb", full = T, parallel = T)
 end.time <- Sys.time()
 
-pdf("Figures/CA_north.pdf", useDingbats = F, width = 10)
+png("Figures/CA_north.png", width = 600)
 plot(n_movement[[1]] / global(n_movement[[1]], max, na.rm = TRUE)[1,1] * 100,
      main = paste("Wind-assisted dispersal for 48h starting on 2022-10-11 00:00 UTC; n = ", length(n_points), "; Computation time: ", round(time_length(end.time - start.time, "minute"), 2), " minutes", sep = ""))
 plot(st_geometry(border), add = T)
@@ -56,7 +56,7 @@ for(i in 0:48){
 
 ## list file names and read in
 imgs <- gtools::mixedsort(list.files("Figures/animation/", full.names = TRUE))
-img_list <- lapply(imgs, magick::image_read)
+img_list <- lapply(imgs[str_detect(imgs, "\\.png")], magick::image_read)
 
 ## join the images together
 img_joined <- magick::image_join(img_list)

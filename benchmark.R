@@ -23,14 +23,15 @@ for (i in 1:12){
   benchmark[i,3] <- time_length(end.time - start.time, "second")
 }
 
-pdf("Figures/benchmark.pdf", useDingbats = F)
+png("Figures/benchmark.png", width = 600)
 benchmark %>%
   gather(computation, time, -n) %>%
   ggplot(aes(x = n, y = time/60, colour = computation)) +
+  geom_point() +
   geom_line() +
   scale_colour_manual(values = c("blue", "red")) +
   scale_x_continuous(breaks = seq(0, 12, by = 2)) +
   theme_bw() +
   xlab("starting points") +
   ylab("computation time (minutes)")
-dev.off
+dev.off()
