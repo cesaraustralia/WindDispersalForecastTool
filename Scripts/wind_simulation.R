@@ -35,7 +35,7 @@ rand_sim <- wind_sim(data_path = c("wind-data/20221011/00"),
                      coords = lapply(seq(1, dim(start_points)[1]), function(x) as.matrix(start_points)[x,]),
                      nforecast = 48,
                      nsim = 50,
-                     atm_level = "850mb",
+                     atm_level = "950mb",
                      full = T,
                      parallel = T)
 
@@ -307,7 +307,7 @@ diff_new %>%
   geom_smooth(se = F, colour = "darkgoldenrod") +
   geom_hline(aes(yintercept = 0), colour = "red", linetype = "dashed") +
   scale_x_continuous(limits = c(1,48), breaks = c(1, 12, 24, 36, 48), name = "Forecast hour") +
-  ylab("Difference in distance travelled (km2; CA - HYSPLIT)") +
+  ylab("Difference in distance travelled (km; CA - HYSPLIT)") +
   theme_bw()
 dev.off()
 
@@ -342,7 +342,7 @@ plot_grid(border %>%
             geom_contour(aes(x = x, y = y, z = z),
                          data = plot(sm(m_dist_viz, 2))$ggObj$data %>%
                            drop_na(), colour = "black") +
-            scale_fill_viridis_c(name = "Spatial smooth s(x, y, 24.93)") +
+            scale_fill_viridis_c(name = "Spatial smooth s(x, y, 27.8)") +
             geom_sf(fill = NA) +
             theme_bw() +
             theme(legend.position = "bottom") +
@@ -355,12 +355,20 @@ plot_grid(border %>%
             geom_contour(aes(x = x, y = y, z = rad2deg(z)),
                          data = plot(sm(m_azimuth_viz, 2))$ggObj$data %>%
                            drop_na(), colour = "black") +
-            scale_fill_viridis_c(name = "Spatial smooth s(x, y, 3.92)") +
+            scale_fill_viridis_c(name = "Spatial smooth s(x, y, 17.31)") +
             geom_sf(fill = NA) +
             theme_bw() +
             theme(legend.position = "bottom") +
             ggtitle("Azimuth"),
           nrow = 1)
+dev.off()
+
+png("Figures/gam_smooth_cor.png", width = 600)
+left_join(plot(sm(m_dist_viz, 2))$ggObj$data %>%
+            drop_na() %>% dplyr::select(x, y, z) %>% rename(distance = z),
+          plot(sm(m_azimuth_viz, 2))$ggObj$data %>%
+            drop_na() %>% dplyr::select(x, y, z) %>% rename(azimuth = z)) %>% mutate(azimuth = rad2deg(azimuth)) %>%
+  ggplot(aes(x = distance, y = azimuth)) + geom_point()
 dev.off()
 
 
@@ -437,308 +445,308 @@ for (i in 1:100) {
 }
 dev.off()
 
-# plot some specific examples
-png("Figures/trajectories - right angle, wrong distance.png", height = 1200, width = 800)
-print(plot_grid(plot_grid(ca_sim_traj[[41]] %>%
-                            st_as_sf(coords = c("x", "y"), crs = crs(empty_r)) %>%
-                            ggplot() +
-                            geom_sf(data = border, fill = "light grey") +
-                            geom_path(data = ca_sim_traj[[41]],
-                                      aes(x = x, y = y, group = nsim), colour = "dark green", size = 1, alpha = .1) +
-                            geom_path(data = hysplit_sim_traj[[41]],
-                                      aes(x = x, y = y), size = 1, colour = "darkgoldenrod") +
-                            theme_bw() +
-                            theme(axis.title.x = element_blank(),
-                                  legend.position = "none"),
-                          plot_grid(trajectories[[1]] %>%
-                                      mutate(model = "CA") %>%
-                                      filter(start_point == 41,
-                                             nforecast == 48) %>%
-                                      ggplot(aes(x = azimuth, fill = model)) +
-                                      xlim(c(0,360)) +
-                                      geom_boxplot(position = "identity", alpha = .5, outlier.shape = NA, coef = 0) +
-                                      geom_vline(data = trajectories[[2]] %>%
-                                                   filter(start_point == 41,
-                                                          nforecast == 48),
-                                                 aes(xintercept = azimuth),
-                                                 colour = "darkgoldenrod",
-                                                 size = 1) +
-                                      coord_polar() +
-                                      theme_bw() +
-                                      scale_fill_manual(values = c("dark green"), name = "Model") +
-                                      scale_x_continuous(limits = c(0,360),
-                                                         breaks = seq(0, 360, by = 45),
-                                                         minor_breaks = seq(0, 360, by = 15)) +
-                                      theme(axis.text.y = element_blank(),
-                                            axis.ticks.y = element_blank(),
-                                            axis.title.x = element_blank(),
-                                            legend.position = "none"),
-                                    trajectories[[1]] %>%
-                                      mutate(model = "CA") %>%
-                                      filter(start_point == 41,
-                                             nforecast == 48) %>%
-                                      ggplot(aes(x = model, fill = model, y = dist)) +
-                                      geom_boxplot(position = "identity", alpha = .5) +
-                                      geom_hline(data = trajectories[[2]] %>%
-                                                   filter(start_point == 41,
-                                                          nforecast == 48),
-                                                 aes(yintercept = dist),
-                                                 colour = "darkgoldenrod",
-                                                 size = 1) +
-                                      theme_bw() +
-                                      scale_fill_manual(values = c("dark green"), name = "Model") +
-                                      theme(axis.text.y = element_blank(),
-                                            axis.ticks.y = element_blank(),
-                                            axis.title.x = element_blank(),
-                                            legend.position = "none") +
-                                      labs(y = "Distance travelled (km)"),
-                                    ncol = 1),
-                          nrow = 1),
-                model_legend,
-                ncol = 1,
-                rel_heights = c(20, 1)))
-dev.off()
-
-png("Figures/trajectories - wrong angle, right distance.png", height = 1200, width = 800)
-print(plot_grid(plot_grid(ca_sim_traj[[43]] %>%
-                            st_as_sf(coords = c("x", "y"), crs = crs(empty_r)) %>%
-                            ggplot() +
-                            geom_sf(data = border, fill = "light grey") +
-                            geom_path(data = ca_sim_traj[[43]],
-                                      aes(x = x, y = y, group = nsim), colour = "dark green", size = 1, alpha = .1) +
-                            geom_path(data = hysplit_sim_traj[[43]],
-                                      aes(x = x, y = y), size = 1, colour = "darkgoldenrod") +
-                            theme_bw() +
-                            theme(axis.title.x = element_blank(),
-                                  legend.position = "none"),
-                          plot_grid(trajectories[[1]] %>%
-                                      mutate(model = "CA") %>%
-                                      filter(start_point == 43,
-                                             nforecast == 48) %>%
-                                      ggplot(aes(x = azimuth, fill = model)) +
-                                      xlim(c(0,360)) +
-                                      geom_boxplot(position = "identity", alpha = .5, outlier.shape = NA, coef = 0) +
-                                      geom_vline(data = trajectories[[2]] %>%
-                                                   filter(start_point == 43,
-                                                          nforecast == 48),
-                                                 aes(xintercept = azimuth),
-                                                 colour = "darkgoldenrod",
-                                                 size = 1) +
-                                      coord_polar() +
-                                      theme_bw() +
-                                      scale_fill_manual(values = c("dark green"), name = "Model") +
-                                      scale_x_continuous(limits = c(0,360),
-                                                         breaks = seq(0, 360, by = 45),
-                                                         minor_breaks = seq(0, 360, by = 15)) +
-                                      theme(axis.text.y = element_blank(),
-                                            axis.ticks.y = element_blank(),
-                                            axis.title.x = element_blank(),
-                                            legend.position = "none"),
-                                    trajectories[[1]] %>%
-                                      mutate(model = "CA") %>%
-                                      filter(start_point == 43,
-                                             nforecast == 48) %>%
-                                      ggplot(aes(x = model, fill = model, y = dist)) +
-                                      geom_boxplot(position = "identity", alpha = .5) +
-                                      geom_hline(data = trajectories[[2]] %>%
-                                                   filter(start_point == 43,
-                                                          nforecast == 48),
-                                                 aes(yintercept = dist),
-                                                 colour = "darkgoldenrod",
-                                                 size = 1) +
-                                      theme_bw() +
-                                      scale_fill_manual(values = c("dark green"), name = "Model") +
-                                      theme(axis.text.y = element_blank(),
-                                            axis.ticks.y = element_blank(),
-                                            axis.title.x = element_blank(),
-                                            legend.position = "none") +
-                                      labs(y = "Distance travelled (km)"),
-                                    ncol = 1),
-                          nrow = 1),
-                model_legend,
-                ncol = 1,
-                rel_heights = c(20, 1)))
-dev.off()
-
-png("Figures/trajectories - both wrong.png", height = 1200, width = 800)
-print(plot_grid(plot_grid(ca_sim_traj[[47]] %>%
-                            st_as_sf(coords = c("x", "y"), crs = crs(empty_r)) %>%
-                            ggplot() +
-                            geom_sf(data = border, fill = "light grey") +
-                            geom_path(data = ca_sim_traj[[47]],
-                                      aes(x = x, y = y, group = nsim), colour = "dark green", size = 1, alpha = .1) +
-                            geom_path(data = hysplit_sim_traj[[47]],
-                                      aes(x = x, y = y), size = 1, colour = "darkgoldenrod") +
-                            theme_bw() +
-                            theme(axis.title.x = element_blank(),
-                                  legend.position = "none"),
-                          plot_grid(trajectories[[1]] %>%
-                                      mutate(model = "CA") %>%
-                                      filter(start_point == 47,
-                                             nforecast == 48) %>%
-                                      ggplot(aes(x = azimuth, fill = model)) +
-                                      xlim(c(0,360)) +
-                                      geom_boxplot(position = "identity", alpha = .5, outlier.shape = NA, coef = 0) +
-                                      geom_vline(data = trajectories[[2]] %>%
-                                                   filter(start_point == 47,
-                                                          nforecast == 48),
-                                                 aes(xintercept = azimuth),
-                                                 colour = "darkgoldenrod",
-                                                 size = 1) +
-                                      coord_polar() +
-                                      theme_bw() +
-                                      scale_fill_manual(values = c("dark green"), name = "Model") +
-                                      scale_x_continuous(limits = c(0,360),
-                                                         breaks = seq(0, 360, by = 45),
-                                                         minor_breaks = seq(0, 360, by = 15)) +
-                                      theme(axis.text.y = element_blank(),
-                                            axis.ticks.y = element_blank(),
-                                            axis.title.x = element_blank(),
-                                            legend.position = "none"),
-                                    trajectories[[1]] %>%
-                                      mutate(model = "CA") %>%
-                                      filter(start_point == 47,
-                                             nforecast == 48) %>%
-                                      ggplot(aes(x = model, fill = model, y = dist)) +
-                                      geom_boxplot(position = "identity", alpha = .5) +
-                                      geom_hline(data = trajectories[[2]] %>%
-                                                   filter(start_point == 47,
-                                                          nforecast == 48),
-                                                 aes(yintercept = dist),
-                                                 colour = "darkgoldenrod",
-                                                 size = 1) +
-                                      theme_bw() +
-                                      scale_fill_manual(values = c("dark green"), name = "Model") +
-                                      theme(axis.text.y = element_blank(),
-                                            axis.ticks.y = element_blank(),
-                                            axis.title.x = element_blank(),
-                                            legend.position = "none") +
-                                      labs(y = "Distance travelled (km)"),
-                                    ncol = 1),
-                          nrow = 1),
-                model_legend,
-                ncol = 1,
-                rel_heights = c(20, 1)))
-dev.off()
-
-png("Figures/trajectories - both very wrong.png", height = 1200, width = 800)
-print(plot_grid(plot_grid(ca_sim_traj[[59]] %>%
-                            st_as_sf(coords = c("x", "y"), crs = crs(empty_r)) %>%
-                            ggplot() +
-                            geom_sf(data = border, fill = "light grey") +
-                            geom_path(data = ca_sim_traj[[59]],
-                                      aes(x = x, y = y, group = nsim), colour = "dark green", size = 1, alpha = .1) +
-                            geom_path(data = hysplit_sim_traj[[59]],
-                                      aes(x = x, y = y), size = 1, colour = "darkgoldenrod") +
-                            theme_bw() +
-                            theme(axis.title.x = element_blank(),
-                                  legend.position = "none"),
-                          plot_grid(trajectories[[1]] %>%
-                                      mutate(model = "CA") %>%
-                                      filter(start_point == 59,
-                                             nforecast == 48) %>%
-                                      ggplot(aes(x = azimuth, fill = model)) +
-                                      xlim(c(0,360)) +
-                                      geom_boxplot(position = "identity", alpha = .5, outlier.shape = NA, coef = 0) +
-                                      geom_vline(data = trajectories[[2]] %>%
-                                                   filter(start_point == 59,
-                                                          nforecast == 48),
-                                                 aes(xintercept = azimuth),
-                                                 colour = "darkgoldenrod",
-                                                 size = 1) +
-                                      coord_polar() +
-                                      theme_bw() +
-                                      scale_fill_manual(values = c("dark green"), name = "Model") +
-                                      scale_x_continuous(limits = c(0,360),
-                                                         breaks = seq(0, 360, by = 45),
-                                                         minor_breaks = seq(0, 360, by = 15)) +
-                                      theme(axis.text.y = element_blank(),
-                                            axis.ticks.y = element_blank(),
-                                            axis.title.x = element_blank(),
-                                            legend.position = "none"),
-                                    trajectories[[1]] %>%
-                                      mutate(model = "CA") %>%
-                                      filter(start_point == 59,
-                                             nforecast == 48) %>%
-                                      ggplot(aes(x = model, fill = model, y = dist)) +
-                                      geom_boxplot(position = "identity", alpha = .5) +
-                                      geom_hline(data = trajectories[[2]] %>%
-                                                   filter(start_point == 59,
-                                                          nforecast == 48),
-                                                 aes(yintercept = dist),
-                                                 colour = "darkgoldenrod",
-                                                 size = 1) +
-                                      theme_bw() +
-                                      scale_fill_manual(values = c("dark green"), name = "Model") +
-                                      theme(axis.text.y = element_blank(),
-                                            axis.ticks.y = element_blank(),
-                                            axis.title.x = element_blank(),
-                                            legend.position = "none") +
-                                      labs(y = "Distance travelled (km)"),
-                                    ncol = 1),
-                          nrow = 1),
-                model_legend,
-                ncol = 1,
-                rel_heights = c(20, 1)))
-dev.off()
-
-png("Figures/trajectories - both right.png", height = 1200, width = 800)
-print(plot_grid(plot_grid(ca_sim_traj[[74]] %>%
-                            st_as_sf(coords = c("x", "y"), crs = crs(empty_r)) %>%
-                            ggplot() +
-                            geom_sf(data = border, fill = "light grey") +
-                            geom_path(data = ca_sim_traj[[74]],
-                                      aes(x = x, y = y, group = nsim), colour = "dark green", size = 1, alpha = .1) +
-                            geom_path(data = hysplit_sim_traj[[74]],
-                                      aes(x = x, y = y), size = 1, colour = "darkgoldenrod") +
-                            theme_bw() +
-                            theme(axis.title.x = element_blank(),
-                                  legend.position = "none"),
-                          plot_grid(trajectories[[1]] %>%
-                                      mutate(model = "CA") %>%
-                                      filter(start_point == 74,
-                                             nforecast == 48) %>%
-                                      ggplot(aes(x = azimuth, fill = model)) +
-                                      xlim(c(0,360)) +
-                                      geom_boxplot(position = "identity", alpha = .5, outlier.shape = NA, coef = 0) +
-                                      geom_vline(data = trajectories[[2]] %>%
-                                                   filter(start_point == 74,
-                                                          nforecast == 48),
-                                                 aes(xintercept = azimuth),
-                                                 colour = "darkgoldenrod",
-                                                 size = 1) +
-                                      coord_polar() +
-                                      theme_bw() +
-                                      scale_fill_manual(values = c("dark green"), name = "Model") +
-                                      scale_x_continuous(limits = c(0,360),
-                                                         breaks = seq(0, 360, by = 45),
-                                                         minor_breaks = seq(0, 360, by = 15)) +
-                                      theme(axis.text.y = element_blank(),
-                                            axis.ticks.y = element_blank(),
-                                            axis.title.x = element_blank(),
-                                            legend.position = "none"),
-                                    trajectories[[1]] %>%
-                                      mutate(model = "CA") %>%
-                                      filter(start_point == 74,
-                                             nforecast == 48) %>%
-                                      ggplot(aes(x = model, fill = model, y = dist)) +
-                                      geom_boxplot(position = "identity", alpha = .5) +
-                                      geom_hline(data = trajectories[[2]] %>%
-                                                   filter(start_point == 74,
-                                                          nforecast == 48),
-                                                 aes(yintercept = dist),
-                                                 colour = "darkgoldenrod",
-                                                 size = 1) +
-                                      theme_bw() +
-                                      scale_fill_manual(values = c("dark green"), name = "Model") +
-                                      theme(axis.text.y = element_blank(),
-                                            axis.ticks.y = element_blank(),
-                                            axis.title.x = element_blank(),
-                                            legend.position = "none") +
-                                      labs(y = "Distance travelled (km)"),
-                                    ncol = 1),
-                          nrow = 1),
-                model_legend,
-                ncol = 1,
-                rel_heights = c(20, 1)))
-dev.off()
+# # plot some specific examples
+# png("Figures/trajectories - right angle, wrong distance.png", height = 1200, width = 800)
+# print(plot_grid(plot_grid(ca_sim_traj[[41]] %>%
+#                             st_as_sf(coords = c("x", "y"), crs = crs(empty_r)) %>%
+#                             ggplot() +
+#                             geom_sf(data = border, fill = "light grey") +
+#                             geom_path(data = ca_sim_traj[[41]],
+#                                       aes(x = x, y = y, group = nsim), colour = "dark green", size = 1, alpha = .1) +
+#                             geom_path(data = hysplit_sim_traj[[41]],
+#                                       aes(x = x, y = y), size = 1, colour = "darkgoldenrod") +
+#                             theme_bw() +
+#                             theme(axis.title.x = element_blank(),
+#                                   legend.position = "none"),
+#                           plot_grid(trajectories[[1]] %>%
+#                                       mutate(model = "CA") %>%
+#                                       filter(start_point == 41,
+#                                              nforecast == 48) %>%
+#                                       ggplot(aes(x = azimuth, fill = model)) +
+#                                       xlim(c(0,360)) +
+#                                       geom_boxplot(position = "identity", alpha = .5, outlier.shape = NA, coef = 0) +
+#                                       geom_vline(data = trajectories[[2]] %>%
+#                                                    filter(start_point == 41,
+#                                                           nforecast == 48),
+#                                                  aes(xintercept = azimuth),
+#                                                  colour = "darkgoldenrod",
+#                                                  size = 1) +
+#                                       coord_polar() +
+#                                       theme_bw() +
+#                                       scale_fill_manual(values = c("dark green"), name = "Model") +
+#                                       scale_x_continuous(limits = c(0,360),
+#                                                          breaks = seq(0, 360, by = 45),
+#                                                          minor_breaks = seq(0, 360, by = 15)) +
+#                                       theme(axis.text.y = element_blank(),
+#                                             axis.ticks.y = element_blank(),
+#                                             axis.title.x = element_blank(),
+#                                             legend.position = "none"),
+#                                     trajectories[[1]] %>%
+#                                       mutate(model = "CA") %>%
+#                                       filter(start_point == 41,
+#                                              nforecast == 48) %>%
+#                                       ggplot(aes(x = model, fill = model, y = dist)) +
+#                                       geom_boxplot(position = "identity", alpha = .5) +
+#                                       geom_hline(data = trajectories[[2]] %>%
+#                                                    filter(start_point == 41,
+#                                                           nforecast == 48),
+#                                                  aes(yintercept = dist),
+#                                                  colour = "darkgoldenrod",
+#                                                  size = 1) +
+#                                       theme_bw() +
+#                                       scale_fill_manual(values = c("dark green"), name = "Model") +
+#                                       theme(axis.text.y = element_blank(),
+#                                             axis.ticks.y = element_blank(),
+#                                             axis.title.x = element_blank(),
+#                                             legend.position = "none") +
+#                                       labs(y = "Distance travelled (km)"),
+#                                     ncol = 1),
+#                           nrow = 1),
+#                 model_legend,
+#                 ncol = 1,
+#                 rel_heights = c(20, 1)))
+# dev.off()
+#
+# png("Figures/trajectories - wrong angle, right distance.png", height = 1200, width = 800)
+# print(plot_grid(plot_grid(ca_sim_traj[[43]] %>%
+#                             st_as_sf(coords = c("x", "y"), crs = crs(empty_r)) %>%
+#                             ggplot() +
+#                             geom_sf(data = border, fill = "light grey") +
+#                             geom_path(data = ca_sim_traj[[43]],
+#                                       aes(x = x, y = y, group = nsim), colour = "dark green", size = 1, alpha = .1) +
+#                             geom_path(data = hysplit_sim_traj[[43]],
+#                                       aes(x = x, y = y), size = 1, colour = "darkgoldenrod") +
+#                             theme_bw() +
+#                             theme(axis.title.x = element_blank(),
+#                                   legend.position = "none"),
+#                           plot_grid(trajectories[[1]] %>%
+#                                       mutate(model = "CA") %>%
+#                                       filter(start_point == 43,
+#                                              nforecast == 48) %>%
+#                                       ggplot(aes(x = azimuth, fill = model)) +
+#                                       xlim(c(0,360)) +
+#                                       geom_boxplot(position = "identity", alpha = .5, outlier.shape = NA, coef = 0) +
+#                                       geom_vline(data = trajectories[[2]] %>%
+#                                                    filter(start_point == 43,
+#                                                           nforecast == 48),
+#                                                  aes(xintercept = azimuth),
+#                                                  colour = "darkgoldenrod",
+#                                                  size = 1) +
+#                                       coord_polar() +
+#                                       theme_bw() +
+#                                       scale_fill_manual(values = c("dark green"), name = "Model") +
+#                                       scale_x_continuous(limits = c(0,360),
+#                                                          breaks = seq(0, 360, by = 45),
+#                                                          minor_breaks = seq(0, 360, by = 15)) +
+#                                       theme(axis.text.y = element_blank(),
+#                                             axis.ticks.y = element_blank(),
+#                                             axis.title.x = element_blank(),
+#                                             legend.position = "none"),
+#                                     trajectories[[1]] %>%
+#                                       mutate(model = "CA") %>%
+#                                       filter(start_point == 43,
+#                                              nforecast == 48) %>%
+#                                       ggplot(aes(x = model, fill = model, y = dist)) +
+#                                       geom_boxplot(position = "identity", alpha = .5) +
+#                                       geom_hline(data = trajectories[[2]] %>%
+#                                                    filter(start_point == 43,
+#                                                           nforecast == 48),
+#                                                  aes(yintercept = dist),
+#                                                  colour = "darkgoldenrod",
+#                                                  size = 1) +
+#                                       theme_bw() +
+#                                       scale_fill_manual(values = c("dark green"), name = "Model") +
+#                                       theme(axis.text.y = element_blank(),
+#                                             axis.ticks.y = element_blank(),
+#                                             axis.title.x = element_blank(),
+#                                             legend.position = "none") +
+#                                       labs(y = "Distance travelled (km)"),
+#                                     ncol = 1),
+#                           nrow = 1),
+#                 model_legend,
+#                 ncol = 1,
+#                 rel_heights = c(20, 1)))
+# dev.off()
+#
+# png("Figures/trajectories - both wrong.png", height = 1200, width = 800)
+# print(plot_grid(plot_grid(ca_sim_traj[[47]] %>%
+#                             st_as_sf(coords = c("x", "y"), crs = crs(empty_r)) %>%
+#                             ggplot() +
+#                             geom_sf(data = border, fill = "light grey") +
+#                             geom_path(data = ca_sim_traj[[47]],
+#                                       aes(x = x, y = y, group = nsim), colour = "dark green", size = 1, alpha = .1) +
+#                             geom_path(data = hysplit_sim_traj[[47]],
+#                                       aes(x = x, y = y), size = 1, colour = "darkgoldenrod") +
+#                             theme_bw() +
+#                             theme(axis.title.x = element_blank(),
+#                                   legend.position = "none"),
+#                           plot_grid(trajectories[[1]] %>%
+#                                       mutate(model = "CA") %>%
+#                                       filter(start_point == 47,
+#                                              nforecast == 48) %>%
+#                                       ggplot(aes(x = azimuth, fill = model)) +
+#                                       xlim(c(0,360)) +
+#                                       geom_boxplot(position = "identity", alpha = .5, outlier.shape = NA, coef = 0) +
+#                                       geom_vline(data = trajectories[[2]] %>%
+#                                                    filter(start_point == 47,
+#                                                           nforecast == 48),
+#                                                  aes(xintercept = azimuth),
+#                                                  colour = "darkgoldenrod",
+#                                                  size = 1) +
+#                                       coord_polar() +
+#                                       theme_bw() +
+#                                       scale_fill_manual(values = c("dark green"), name = "Model") +
+#                                       scale_x_continuous(limits = c(0,360),
+#                                                          breaks = seq(0, 360, by = 45),
+#                                                          minor_breaks = seq(0, 360, by = 15)) +
+#                                       theme(axis.text.y = element_blank(),
+#                                             axis.ticks.y = element_blank(),
+#                                             axis.title.x = element_blank(),
+#                                             legend.position = "none"),
+#                                     trajectories[[1]] %>%
+#                                       mutate(model = "CA") %>%
+#                                       filter(start_point == 47,
+#                                              nforecast == 48) %>%
+#                                       ggplot(aes(x = model, fill = model, y = dist)) +
+#                                       geom_boxplot(position = "identity", alpha = .5) +
+#                                       geom_hline(data = trajectories[[2]] %>%
+#                                                    filter(start_point == 47,
+#                                                           nforecast == 48),
+#                                                  aes(yintercept = dist),
+#                                                  colour = "darkgoldenrod",
+#                                                  size = 1) +
+#                                       theme_bw() +
+#                                       scale_fill_manual(values = c("dark green"), name = "Model") +
+#                                       theme(axis.text.y = element_blank(),
+#                                             axis.ticks.y = element_blank(),
+#                                             axis.title.x = element_blank(),
+#                                             legend.position = "none") +
+#                                       labs(y = "Distance travelled (km)"),
+#                                     ncol = 1),
+#                           nrow = 1),
+#                 model_legend,
+#                 ncol = 1,
+#                 rel_heights = c(20, 1)))
+# dev.off()
+#
+# png("Figures/trajectories - both very wrong.png", height = 1200, width = 800)
+# print(plot_grid(plot_grid(ca_sim_traj[[59]] %>%
+#                             st_as_sf(coords = c("x", "y"), crs = crs(empty_r)) %>%
+#                             ggplot() +
+#                             geom_sf(data = border, fill = "light grey") +
+#                             geom_path(data = ca_sim_traj[[59]],
+#                                       aes(x = x, y = y, group = nsim), colour = "dark green", size = 1, alpha = .1) +
+#                             geom_path(data = hysplit_sim_traj[[59]],
+#                                       aes(x = x, y = y), size = 1, colour = "darkgoldenrod") +
+#                             theme_bw() +
+#                             theme(axis.title.x = element_blank(),
+#                                   legend.position = "none"),
+#                           plot_grid(trajectories[[1]] %>%
+#                                       mutate(model = "CA") %>%
+#                                       filter(start_point == 59,
+#                                              nforecast == 48) %>%
+#                                       ggplot(aes(x = azimuth, fill = model)) +
+#                                       xlim(c(0,360)) +
+#                                       geom_boxplot(position = "identity", alpha = .5, outlier.shape = NA, coef = 0) +
+#                                       geom_vline(data = trajectories[[2]] %>%
+#                                                    filter(start_point == 59,
+#                                                           nforecast == 48),
+#                                                  aes(xintercept = azimuth),
+#                                                  colour = "darkgoldenrod",
+#                                                  size = 1) +
+#                                       coord_polar() +
+#                                       theme_bw() +
+#                                       scale_fill_manual(values = c("dark green"), name = "Model") +
+#                                       scale_x_continuous(limits = c(0,360),
+#                                                          breaks = seq(0, 360, by = 45),
+#                                                          minor_breaks = seq(0, 360, by = 15)) +
+#                                       theme(axis.text.y = element_blank(),
+#                                             axis.ticks.y = element_blank(),
+#                                             axis.title.x = element_blank(),
+#                                             legend.position = "none"),
+#                                     trajectories[[1]] %>%
+#                                       mutate(model = "CA") %>%
+#                                       filter(start_point == 59,
+#                                              nforecast == 48) %>%
+#                                       ggplot(aes(x = model, fill = model, y = dist)) +
+#                                       geom_boxplot(position = "identity", alpha = .5) +
+#                                       geom_hline(data = trajectories[[2]] %>%
+#                                                    filter(start_point == 59,
+#                                                           nforecast == 48),
+#                                                  aes(yintercept = dist),
+#                                                  colour = "darkgoldenrod",
+#                                                  size = 1) +
+#                                       theme_bw() +
+#                                       scale_fill_manual(values = c("dark green"), name = "Model") +
+#                                       theme(axis.text.y = element_blank(),
+#                                             axis.ticks.y = element_blank(),
+#                                             axis.title.x = element_blank(),
+#                                             legend.position = "none") +
+#                                       labs(y = "Distance travelled (km)"),
+#                                     ncol = 1),
+#                           nrow = 1),
+#                 model_legend,
+#                 ncol = 1,
+#                 rel_heights = c(20, 1)))
+# dev.off()
+#
+# png("Figures/trajectories - both right.png", height = 1200, width = 800)
+# print(plot_grid(plot_grid(ca_sim_traj[[74]] %>%
+#                             st_as_sf(coords = c("x", "y"), crs = crs(empty_r)) %>%
+#                             ggplot() +
+#                             geom_sf(data = border, fill = "light grey") +
+#                             geom_path(data = ca_sim_traj[[74]],
+#                                       aes(x = x, y = y, group = nsim), colour = "dark green", size = 1, alpha = .1) +
+#                             geom_path(data = hysplit_sim_traj[[74]],
+#                                       aes(x = x, y = y), size = 1, colour = "darkgoldenrod") +
+#                             theme_bw() +
+#                             theme(axis.title.x = element_blank(),
+#                                   legend.position = "none"),
+#                           plot_grid(trajectories[[1]] %>%
+#                                       mutate(model = "CA") %>%
+#                                       filter(start_point == 74,
+#                                              nforecast == 48) %>%
+#                                       ggplot(aes(x = azimuth, fill = model)) +
+#                                       xlim(c(0,360)) +
+#                                       geom_boxplot(position = "identity", alpha = .5, outlier.shape = NA, coef = 0) +
+#                                       geom_vline(data = trajectories[[2]] %>%
+#                                                    filter(start_point == 74,
+#                                                           nforecast == 48),
+#                                                  aes(xintercept = azimuth),
+#                                                  colour = "darkgoldenrod",
+#                                                  size = 1) +
+#                                       coord_polar() +
+#                                       theme_bw() +
+#                                       scale_fill_manual(values = c("dark green"), name = "Model") +
+#                                       scale_x_continuous(limits = c(0,360),
+#                                                          breaks = seq(0, 360, by = 45),
+#                                                          minor_breaks = seq(0, 360, by = 15)) +
+#                                       theme(axis.text.y = element_blank(),
+#                                             axis.ticks.y = element_blank(),
+#                                             axis.title.x = element_blank(),
+#                                             legend.position = "none"),
+#                                     trajectories[[1]] %>%
+#                                       mutate(model = "CA") %>%
+#                                       filter(start_point == 74,
+#                                              nforecast == 48) %>%
+#                                       ggplot(aes(x = model, fill = model, y = dist)) +
+#                                       geom_boxplot(position = "identity", alpha = .5) +
+#                                       geom_hline(data = trajectories[[2]] %>%
+#                                                    filter(start_point == 74,
+#                                                           nforecast == 48),
+#                                                  aes(yintercept = dist),
+#                                                  colour = "darkgoldenrod",
+#                                                  size = 1) +
+#                                       theme_bw() +
+#                                       scale_fill_manual(values = c("dark green"), name = "Model") +
+#                                       theme(axis.text.y = element_blank(),
+#                                             axis.ticks.y = element_blank(),
+#                                             axis.title.x = element_blank(),
+#                                             legend.position = "none") +
+#                                       labs(y = "Distance travelled (km)"),
+#                                     ncol = 1),
+#                           nrow = 1),
+#                 model_legend,
+#                 ncol = 1,
+#                 rel_heights = c(20, 1)))
+# dev.off()
