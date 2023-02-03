@@ -1,3 +1,9 @@
 .ipynb_checkpoints/
 venv/
 .Rproj.user
+CA-output/
+HYSPLIT-output/
+wind-data/
+Figures/
+.Rhistory
+.RData

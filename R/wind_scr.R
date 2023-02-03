@@ -65,6 +65,16 @@ read_v <- function(path = "Data/", files_list, fcast, lev = "850mb"){
     file.path(path, .) %>%
     terra::rast()
 }
+# read the vertical component
+read_vert <- function(path = "Data/", files_list, fcast, lev = "850mb"){
+  files_list %>%
+    dplyr::filter(comp == "vvel") %>%
+    dplyr::filter(level == lev) %>%
+    dplyr::filter(forecast == fcast) %>%
+    pull(file) %>%
+    file.path(path, .) %>%
+    terra::rast()
+}
 
 
 next_cell <- function(x, i, j){
