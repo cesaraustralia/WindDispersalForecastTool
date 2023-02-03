@@ -37,7 +37,7 @@ xy_in_aus <- function(long, lat) {
 # apiurl <- "https://gwtiioyhfg.execute-api.ap-southeast-2.amazonaws.com/api/cesar-storage/wind-data"
 
 ui <- shinyUI(
-  navbarPage("Wind Forecast Tool v0.1",
+  navbarPage("Wind Forecast Tool v0.1.1",
              selected = "Simulation",
              # theme = shinytheme("yeti"),
 
@@ -50,20 +50,20 @@ ui <- shinyUI(
 
                  h5("Select meteorological forecast cycle"),
                  shiny::splitLayout(
-                   # dateInput("forec_date",
-                   #           label = NULL, #"Select meteorological forecast date",
-                   #           value = lubridate::today() - 1,
-                   #           min = "2022-05-22",
-                   #           max = lubridate::today() - 1,
-                   #           width = "100%"
-                   # ),
                    dateInput("forec_date",
                              label = NULL, #"Select meteorological forecast date",
-                             value = "2022-05-30",
-                             min = "2022-05-22",
-                             max = "2022-05-30",
+                             value = lubridate::today() - 1,
+                             min = lubridate::today() - 7,
+                             max = lubridate::today() - 1,
                              width = "100%"
                    ),
+                   # dateInput("forec_date",
+                   #           label = NULL, #"Select meteorological forecast date",
+                   #           value = "2022-05-30",
+                   #           min = "2022-05-22",
+                   #           max = "2022-05-30",
+                   #           width = "100%"
+                   # ),
 
                    selectizeInput(inputId = "forec_time",
                                   label = NULL, #"Select forecast start time",
@@ -92,8 +92,8 @@ ui <- shinyUI(
 
                  selectInput(inputId = "level",
                              label = "Select atmospheric level",
-                             choices = c("850mb"),
-                             selected = "850mb",
+                             choices = c("850mb", "950mb"),
+                             selected = "950mb",
                              width = "100%"
                  ),
 
@@ -213,12 +213,13 @@ server <- function(input, output, session){
   observeEvent(input$run, {
 
     wind_info$predmap <- wind_sim(data_path = wind_info$wind_path,
-                                  long = input_coords$long,
-                                  lat = input_coords$lat,
+                                  coords = list(c(input_coords$long, input_coords$lat)),
+                                  # long = input_coords$long,
+                                  # lat = input_coords$lat,
                                   nforecast = input$nforecast,
                                   nsim = input$nsim,
-                                  # fdate = format(as.Date(input$forec_date), "%Y%m%d"),
-                                  # fhour = input$forec_time,
+                                  fdate = format(as.Date(input$forec_date), "%Y%m%d"),
+                                  fhour = input$forec_time,
                                   atm_level = input$level)
 
   })

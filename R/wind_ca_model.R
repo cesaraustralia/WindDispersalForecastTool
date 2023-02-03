@@ -259,13 +259,17 @@ wind_sim <- function(data_path = "wind-data/",
 
   if(full) {
     fct_raster <- stack(lapply(npoint, "[[", 1))
-    fct_raster <- calc(fct_raster, sum)
+    fct_raster <- raster::calc(fct_raster, sum)
     fct_raster[fct_raster == 0] <- NA
     points_full <- lapply(npoint, "[[", 2)
     return(list(rast(fct_raster), bind_rows(points_full)))
   } else {
-    fct_raster <- stack(npoint)
-    fct_raster <- calc(fct_raster, sum)
+    if (length(npoint) > 1) {
+      fct_raster <- ifelse(length(npoint) > 1, stack(npoint), as(fct_raster, "Raster"))
+      fct_raster <- raster::calc(fct_raster, sum)
+    } else
+      fct_raster <- raster::raster(fct_raster)
+
     fct_raster[fct_raster == 0] <- NA
     return(rast(fct_raster))
   }
