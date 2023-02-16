@@ -51,7 +51,7 @@ tz_choices <- c("Australia/Adelaide",
 )
 
 ui <- shinyUI(
-  navbarPage("Wind Forecast Tool v0.1.2",
+  navbarPage("Wind Forecast Tool v0.2.0",
              selected = "Simulation",
              # theme = shinytheme("yeti"),
 
