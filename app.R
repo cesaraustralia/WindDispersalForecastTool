@@ -36,8 +36,22 @@ xy_in_aus <- function(long, lat) {
 # base url for Cesar S3 API for wind data
 # apiurl <- "https://gwtiioyhfg.execute-api.ap-southeast-2.amazonaws.com/api/cesar-storage/wind-data"
 
+# Define options for timezone dropdown menu
+tz_choices <- c("Australia/Adelaide",
+                "Australia/Brisbane",
+                "Australia/Broken_Hill",
+                "Australia/Darwin",
+                "Australia/Eucla",
+                "Australia/Hobart",
+                "Australia/Lindeman",
+                "Australia/Lord_Howe",
+                "Australia/Melbourne",
+                "Australia/Perth",
+                "Australia/Sydney"
+)
+
 ui <- shinyUI(
-  navbarPage("Wind Forecast Tool v0.1.1",
+  navbarPage("Wind Forecast Tool v0.1.2",
              selected = "Simulation",
              # theme = shinytheme("yeti"),
 
@@ -49,30 +63,9 @@ ui <- shinyUI(
                  width = 4,
 
                  h5("Select meteorological forecast cycle"),
-                 shiny::splitLayout(
-                   dateInput("forec_date",
-                             label = NULL, #"Select meteorological forecast date",
-                             value = lubridate::today() - 1,
-                             min = lubridate::today() - 7,
-                             max = lubridate::today() - 1,
-                             width = "100%"
-                   ),
-                   # dateInput("forec_date",
-                   #           label = NULL, #"Select meteorological forecast date",
-                   #           value = "2022-05-30",
-                   #           min = "2022-05-22",
-                   #           max = "2022-05-30",
-                   #           width = "100%"
-                   # ),
+                 selectInput("timezone", "Timezone", choices = tz_choices, selected = "Australia/Melbourne"),
 
-                   selectizeInput(inputId = "forec_time",
-                                  label = NULL, #"Select forecast start time",
-                                  choices = c("00", "06", "12", "18"),
-                                  options = list(dropdownParent = 'body',
-                                                 # render = I("function() {onItemAdd('value', '$item'); }"),
-                                                 create = 0),
-                                  selected = "18")
-                 ),
+                 uiOutput("forec_date_and_time"),
 
 
                  sliderTextInput(inputId = "nforecast",
@@ -133,21 +126,47 @@ ui <- shinyUI(
 
 server <- function(input, output, session){
 
+  output$forec_date_and_time <- renderUI({
+    tz <- input$timezone
+    now_utc <- lubridate::now(tzone = "UTC")
+    now_selected_tz <- lubridate::with_tz(now_utc, tz)
+
+    # original choices in UTC
+    original_choices_utc <- lubridate::ymd_hms(paste0(format(now_utc, "%Y-%m-%d"), " ", c("00:00:00", "06:00:00", "12:00:00", "18:00:00")), tz = "UTC")
+
+    # convert original choices to selected timezone
+    converted_choices_selected_tz <- lubridate::with_tz(original_choices_utc, tz)
+
+    shiny::splitLayout(
+      dateInput("forec_date",
+                label = "Start date",
+                value = now_selected_tz - lubridate::days(1),
+                min = now_selected_tz - lubridate::days(7),
+                max = now_selected_tz - lubridate::days(1)),
+
+      selectizeInput(inputId = "forec_time",
+                     label = "Start time",
+                     choices = sort(lubridate::hour(converted_choices_selected_tz)),
+                     options = list(dropdownParent = 'body', create = 0),
+                     selected = max(lubridate::hour(converted_choices_selected_tz))
+      )
+    )
+  })
+
+
   wind_info <- reactiveValues()
   wind_info$wind_path <- NULL
   wind_info$predmap <- NULL
-  # get the wind data path using date and start time
-  # /20220524/00/gfs_ugrd_850mb_20220524_t00z_f000
-  observe({
-    # wind_info$wind_path <- sprintf("%s/%s/%s",
-    #                                apiurl,
-    #                                format(as.Date(input$forec_date), "%Y%m%d"),
-    #                                input$forec_time)
-    wind_info$wind_path <- sprintf("wind-data/%s/%s",
-                                   format(as.Date(input$forec_date), "%Y%m%d"),
-                                   input$forec_time)
-  })
+  observeEvent(c(input$forec_date, input$forec_time), {
+    tz <- input$timezone
+    selected_time <- lubridate::ymd_hms(paste0(format(input$forec_date, "%Y-%m-%d"), " ", input$forec_time, ":00:00"), tz = tz)
+    selected_time_utc <- lubridate::with_tz(selected_time, "UTC")
 
+    # Use selected_time_utc in this code chunk
+    wind_info$wind_path <- sprintf("wind-data/%s/%s",
+                                   format(as.Date(selected_time_utc), "%Y%m%d"),
+                                   format(selected_time_utc, "%H"))
+  })
 
   # set default values for click
   input_coords <- reactiveValues()
@@ -264,8 +283,8 @@ server <- function(input, output, session){
           ) +
           labs(x = "Longitude", y = "Latitude", fill = "Frequency") +
           ggtitle(
-            sprintf("Forecast initiated at %s %s:00 UTC | Duration: %s hours\nLongitude: %s  Latitude: %s",
-                    input$forec_date, input$forec_time, input$nforecast,
+            sprintf("Forecast initiated at %s %s:00 %s | Duration: %s hours\nLongitude: %s  Latitude: %s",
+                    input$forec_date, input$forec_time, input$timezone, input$nforecast,
                     input_coords$long, input_coords$lat)
           )
       }
