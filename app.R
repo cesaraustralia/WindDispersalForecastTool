@@ -140,9 +140,9 @@ server <- function(input, output, session){
     shiny::splitLayout(
       dateInput("forec_date",
                 label = "Start date",
-                value = now_selected_tz - lubridate::days(1),
-                min = now_selected_tz - lubridate::days(7),
-                max = now_selected_tz - lubridate::days(1)),
+                value = now_selected_tz,
+                min = now_selected_tz - lubridate::days(6),
+                max = now_selected_tz),
 
       selectizeInput(inputId = "forec_time",
                      label = "Start time",
