@@ -2,7 +2,7 @@ source("Scripts/wind_download.R")
 
 # download wind data for previous day
 maindir <- "wind-data"
-datename <- format(lubridate::today() - 1, "%Y%m%d")
+datename <- format(lubridate::today(tzone = "UTC"), "%Y%m%d")
 datedir <- file.path(maindir, datename)
 dir.create(datedir)
 
@@ -27,7 +27,7 @@ for(k in c(850, 950)){
 }
 
 # delete wind data from previous week
-lastweek <- format(lubridate::today() - 8, "%Y%m%d")
+lastweek <- format(lubridate::today(tzone = "UTC") - 7, "%Y%m%d")
 
 unlink(file.path(maindir, lastweek),
        recursive = T,
