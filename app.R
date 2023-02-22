@@ -51,7 +51,7 @@ tz_choices <- c("Australia/Adelaide",
 )
 
 ui <- shinyUI(
-  navbarPage("Wind Forecast Tool v0.2.1",
+  navbarPage("Wind Forecast Tool v0.2.2",
              selected = "Simulation",
              # theme = shinytheme("yeti"),
 
@@ -140,9 +140,9 @@ server <- function(input, output, session){
     shiny::splitLayout(
       dateInput("forec_date",
                 label = "Start date",
-                value = now_selected_tz,
-                min = now_selected_tz - lubridate::days(6),
-                max = now_selected_tz),
+                value = lubridate::today(tzone = tz),
+                min = lubridate::today(tzone = tz) - lubridate::days(7),
+                max = lubridate::today(tzone = tz)),
 
       selectizeInput(inputId = "forec_time",
                      label = "Start time",
