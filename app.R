@@ -51,7 +51,7 @@ tz_choices <- c("Australia/Adelaide",
 )
 
 ui <- shinyUI(
-  navbarPage("Wind Forecast Tool v0.2.2",
+  navbarPage("Wind Forecast Tool v0.2.3",
              selected = "Simulation",
              # theme = shinytheme("yeti"),
 
@@ -62,8 +62,10 @@ ui <- shinyUI(
                column(
                  width = 4,
 
-                 h5("Select meteorological forecast cycle"),
+                 h5("Select meteorological forecast cycle:"),
                  selectInput("timezone", "Timezone", choices = tz_choices, selected = "Australia/Melbourne"),
+
+                 h5("Forecasts are released every day at 8AM AEST, and are available for the cycle in the preceding 24hrs."),
 
                  uiOutput("forec_date_and_time"),
 
