@@ -51,9 +51,9 @@ tz_choices <- c("Australia/Adelaide",
 )
 
 ui <- shinyUI(
-  navbarPage("Wind Forecast Tool v0.2.3",
+  navbarPage("Wind Forecast Tool v0.2.4",
              selected = "Simulation",
-             # theme = shinytheme("yeti"),
+             theme = shinytheme("yeti"),
 
              # Panel 1 -----------------------------------------------------------------
              tabPanel(
@@ -72,7 +72,7 @@ ui <- shinyUI(
 
                  sliderTextInput(inputId = "nforecast",
                                  label = "Total run time (hours)",
-                                 choices = seq(6, 48, 6),
+                                 choices = seq(1, 48, 1),
                                  selected = 24,
                                  grid = TRUE
                  ),
@@ -148,9 +148,9 @@ server <- function(input, output, session){
 
       selectizeInput(inputId = "forec_time",
                      label = "Start time",
-                     choices = sort(lubridate::hour(converted_choices_selected_tz)),
+                     choices = sort(lubridate::hour(lubridate::ceiling_date(converted_choices_selected_tz, "hour"))),
                      options = list(dropdownParent = 'body', create = 0),
-                     selected = max(lubridate::hour(converted_choices_selected_tz))
+                     selected = max(lubridate::hour(lubridate::ceiling_date(converted_choices_selected_tz, "hour")))
       )
     )
   })
