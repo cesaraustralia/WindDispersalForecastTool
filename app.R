@@ -65,7 +65,7 @@ ui <- shinyUI(
                  h5("Select meteorological forecast cycle:"),
                  selectInput("timezone", "Timezone", choices = tz_choices, selected = "Australia/Melbourne"),
 
-                 h5("Forecasts are released every day at 8AM AEST, and are available for the cycle in the preceding 24hrs."),
+                 h5("Forecasts are released every day at 8AM AEST*, and are available for the cycle in the preceding 24hrs."),
 
                  uiOutput("forec_date_and_time"),
 
@@ -107,6 +107,8 @@ ui <- shinyUI(
                  span(textOutput("checklatlong"), style = "color:red"),
                  # add a leaflet map
                  leafletOutput("smap", height = 250),
+
+                 h6("* If your simulation fails around this time, try again in a few minutes - the forecasts may not have finished downloading yet.")
 
                ),
                column(
