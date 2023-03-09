@@ -28,7 +28,8 @@ To run a simulation, you need to select among several conditions:
 - Select the total run time of the forecast, up to 48 hours.
 - Select the number of simulations to run - since the algorithm contains some stochastic elements, more simulations will provide you with a more accurate estimate of the likely trajectory. Simulated trajectories can diverge greatly especially when wind speed is low and stochastic movements become more influential.
 - Select the atmospheric level at which the simulation is run. Two are available: 950mb (equivalent to ~ 600 m a.s.l.) and 850mb (equivalent to ~ 1500 m a.s.l.).
-Note that longer total run times and greater numbers of simulations will result in longer computation times, but simulations should still finish in under a couple of minutes.
+
+*Note that longer total run times and greater numbers of simulations will result in longer computation times, but simulations should still finish in under four minutes at the most.*
 
 3. Starting point: You can either input longitude and latitude manually (in decimal degrees), or click on the map to select a starting location for the simulation.
 
