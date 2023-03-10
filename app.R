@@ -122,6 +122,13 @@ ui <- shinyUI(
                    withSpinner(color = "#428bca")# "#0dc5c1"
 
                )
+             ),
+
+             # Panel 2 -----------------------------------------------------------------
+             tabPanel(
+               "About",
+
+               includeMarkdown("README.md")
              )
 
   )
