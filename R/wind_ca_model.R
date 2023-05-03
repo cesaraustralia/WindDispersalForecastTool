@@ -27,7 +27,7 @@ wind_sim <- function(data_path = "wind-data",
   difference = 0
 
   if(backwards){
-    fdate = as.character(format(as.POSIXct(lubridate::ymd("20221012") - lubridate::hours(23),format='%m/%d/%Y %H:%M:%S'),format='%Y%m%d'))
+    fdate = as.character(format(as.POSIXct(lubridate::ymd(fdate) - lubridate::hours(23),format='%m/%d/%Y %H:%M:%S'),format='%Y%m%d'))
 
     fhour = as.character(lubridate::hour(lubridate::hours(as.numeric(fhour)) - lubridate::hours(nforecast)) %% 24)
 
