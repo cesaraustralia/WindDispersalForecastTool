@@ -5,11 +5,11 @@
 # 2022-10-26
 #
 # simulate wind dispersal with cellular automata
-wind_sim <- function(data_path = "wind-data/",
+wind_sim <- function(data_path = "wind-data",
                      coords = list(), # list of starting coordinates, each a vector of c(longitude, latitude)
                      # long = 145,
                      # lat = -37.8,
-                     nforecast = 24, # number of forward forecast hours
+                     nforecast = 24, # number of forecast hours
                      nsim = 10, # number of simulations to calculate frequency
                      fdate = "20220524", # the forecast data
                      fhour = "18", # the forecast hour
@@ -17,12 +17,36 @@ wind_sim <- function(data_path = "wind-data/",
                      cellsize = 25000,
                      full = F, # if TRUE, generate a dataframe of endpoints per time step
                      parallel = F, # if TRUE run in parallel
-                     ncores = F){ # if FALSE (default) use max number of cores - 1. Else set to number of cores to use
+                     ncores = F, # if FALSE (default) use max number of cores - 1. Else set to number of cores to use
+                     backwards = F # if FALSE (default) run forwards simulation from starting point. Else backwards from end point
+                     ){
 
   require(tidyverse)
   require(terra)
 
-  files <- gfs_names(path = data_path)
+  difference = 0
+
+  if(backwards){
+    fdate = as.character(format(as.POSIXct(lubridate::ymd("20221012") - lubridate::hours(23),format='%m/%d/%Y %H:%M:%S'),format='%Y%m%d'))
+
+    fhour = as.character(lubridate::hour(lubridate::hours(as.numeric(fhour)) - lubridate::hours(nforecast)) %% 24)
+
+    # define the interval
+    interval <- c("00", "06", "18")
+
+    # calculate the index of the closest interval
+    index <- which.min(abs(as.numeric(fhour) - as.numeric(interval)))
+
+    # calculate the difference
+    difference <- as.numeric(fhour) - as.numeric(interval[index])
+
+    # get the corresponding interval
+    fhour <- interval[index]
+  }
+
+  pathway <- file.path(data_path, fdate, fhour)
+
+  files <- gfs_names(path = pathway)
 
   if(parallel){
     require(doSNOW)
@@ -148,7 +172,7 @@ wind_sim <- function(data_path = "wind-data/",
     close(pb)
     stopCluster(cl)
   } else {
-    r <- terra::rast(file.path(data_path, files$file[1]))
+    r <- terra::rast(file.path(pathway, files$file[1]))
 
     npoint <- list()
 
@@ -181,19 +205,25 @@ wind_sim <- function(data_path = "wind-data/",
 
         n <- 1
 
-        for(f in seq_len(nforecast)){
+        forecast_hours <- seq_len(nforecast)
+        if(backwards) forecast_hours <- rev(forecast_hours)
+
+        for(f in forecast_hours){
 
           x <- points[n, 1]
           y <- points[n, 2]
 
           forecasts <- unique(files$forecast)
 
-          u <- read_u(path = data_path, files_list = files, fcast = forecasts[f], lev = atm_level)
-          v <- read_v(path = data_path, files_list = files, fcast = forecasts[f], lev = atm_level)
+          u <- read_u(path = pathway, files_list = files, fcast = forecasts[f + difference], lev = atm_level)
+          v <- read_v(path = pathway, files_list = files, fcast = forecasts[f + difference], lev = atm_level)
 
           # calculate wind speed and direction
           speed <- wind_speed(u = u, v = v)
           direction <- wind_direction(u = u, v = v)
+
+          if(backwards)
+            direction <- (direction + 180) %% 360
 
           speed_ctr <- speed[y, x][1,1]
 
@@ -294,6 +324,16 @@ wind_sim_hist <- function(data_u = NULL,
 
   r <- data_u[[1]]
 
+  fhour_utc = ifelse(as.numeric(fhour) %in% c(0:5), "00",
+                     ifelse(as.numeric(fhour) %in% c(6:11), "06",
+                            ifelse(as.numeric(fhour) %in% c(12:17), "12",
+                                   ifelse(as.numeric(fhour) %in% c(18:23), "18",
+                                   NA))))
+  if(is.na(fhour_utc))
+    stop("fhour should be between 0-23")
+
+  f_offset = as.numeric(fhour) - as.numeric(fhour_utc)
+
   if(parallel){
     require(doSNOW)
     require(foreach)
@@ -353,13 +393,15 @@ wind_sim_hist <- function(data_u = NULL,
 
         for(f in seq_len(nforecast)){
 
+          f_new <- f + f_offset
+
           x <- points[n, 1]
           y <- points[n, 2]
 
-          start_layer <- which(names(data_u) == paste0(fdate, fhour))
+          start_layer <- which(names(data_u) == paste0(fdate, fhour_utc))
 
-          u <- data_u[[start_layer + floor(f/6)]]
-          v <- data_v[[start_layer + floor(f/6)]]
+          u <- data_u[[start_layer + floor(f_new/6)]]
+          v <- data_v[[start_layer + floor(f_new/6)]]
 
           # calculate wind speed and direction
           speed <- wind_speed(u = u, v = v)
@@ -462,13 +504,15 @@ wind_sim_hist <- function(data_u = NULL,
 
         for(f in seq_len(nforecast)){
 
+          f_new <- f + f_offset
+
           x <- points[n, 1]
           y <- points[n, 2]
 
-          start_layer <- which(names(data_u) == paste0(fdate, fhour))
+          start_layer <- which(names(data_u) == paste0(fdate, fhour_utc))
 
-          u <- data_u[[start_layer + floor(f/6)]]
-          v <- data_v[[start_layer + floor(f/6)]]
+          u <- data_u[[start_layer + floor(f_new/6)]]
+          v <- data_v[[start_layer + floor(f_new/6)]]
 
           # calculate wind speed and direction
           speed <- wind_speed(u = u, v = v)
