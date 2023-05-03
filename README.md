@@ -22,16 +22,17 @@ Meteorological forecast cycles are sourced daily from the [NOAA Global Forecast 
 
 To run a simulation, you need to select among several conditions:
 
-1. Forecast cycle: Select a timezone and starting date and time for your simulation. Data are downloaded daily at 8AM AEST, and are kept for a week - hence you can run simulations with start times ranging up to a week prior to the current date. Start times are available at 6 hour intervals, and are converted to the selected timezone.
+1. Forecast cycle: Select a timezone and date and time for your simulation. Data are downloaded daily at 8AM AEST, and are kept for a week - hence you can run simulations with times ranging up to a week prior to the current date. Times are available at 6 hour intervals, and are converted to the selected timezone.
 
 2. Simulation parameters:
-- Select the total run time of the forecast, up to 48 hours.
-- Select the number of simulations to run - since the algorithm contains some stochastic elements, more simulations will provide you with a more accurate estimate of the likely trajectory. Simulated trajectories can diverge greatly especially when wind speed is low and stochastic movements become more influential.
-- Select the atmospheric level at which the simulation is run. Two are available: 950mb (equivalent to ~ 600 m a.s.l.) and 850mb (equivalent to ~ 1500 m a.s.l.).
+  - Select the total run time of the forecast, up to 48 hours.
+  - Select the number of simulations to run - since the algorithm contains some stochastic elements, more simulations will provide you with a more accurate estimate of the likely trajectory. Simulated trajectories can diverge greatly especially when wind speed is low and stochastic movements become more influential.
+  - Select the atmospheric level at which the simulation is run. Two are available: 950mb (equivalent to ~ 600 m a.s.l.) and 850mb (equivalent to ~ 1500 m a.s.l.).
+  - Select whether the simulations is forwards (default) or backwards (tick). If backwards, the chosen locality is the end point of the simulation, and the chosen date and time are the end points of the simulation.
 
 *Note that longer total run times and greater numbers of simulations will result in longer computation times, but simulations should still finish in under four minutes at the most.*
 
-3. Starting point: You can either input longitude and latitude manually (in decimal degrees), or click on the map to select a starting location for the simulation.
+3. Locality: You can either input longitude and latitude manually (in decimal degrees), or click on the map to select a locality for the simulation.
 
 After you have selected all of your starting conditions, press the **Run forecast** button. After a short wait the results of your simulation will show up on the right, with cells coloured based on the frequency of simulated trajectories passing through them.
 
