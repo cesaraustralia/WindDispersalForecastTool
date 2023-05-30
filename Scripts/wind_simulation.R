@@ -256,15 +256,6 @@ for (k in 1:48) {
   }
 }
 
-
-all_t <- tibble(
-  nforecast = 1:48,
-  dist = sapply(dist_test, function(x)
-    length(which(x == "same")) / 100),
-  azimuth = sapply(azimuth_test, function(x)
-    length(which(x == "same")) / 100)
-)
-
 # distance
 round(sapply(dist_test,
              function(i)
@@ -276,6 +267,23 @@ round(sapply(azimuth_test,
              function(i)
                binom.test(x = length(i[which(i == "same")]),
                           n = length(i))$p.value), 2)
+
+all_t <- tibble(
+  nforecast = 1:48,
+  dist = 1 - sapply(dist_test, function(x)
+    length(which(x == "same")) / 100),
+  azimuth = 1 - sapply(azimuth_test, function(x)
+    length(which(x == "same")) / 100),
+  dist.p = round(sapply(dist_test,
+                        function(i)
+                          binom.test(x = length(i[which(i == "same")]),
+                                     n = length(i))$p.value), 2),
+  azimuth.p = round(sapply(azimuth_test,
+                           function(i)
+                             binom.test(x = length(i[which(i == "same")]),
+                                        n = length(i))$p.value), 2))
+
+all_t %>% write_csv("all_t.csv")
 
 png("Figures/trajectories.png", width = 600)
 all_t %>%
@@ -411,6 +419,38 @@ print(plot(m_dist_viz, allTerms = T), pages = 1)
 
 m_azimuth_viz <- getViz(m_azimuth)
 print(plot(m_azimuth_viz, allTerms = T), pages = 1)
+
+png("Figures/partial_elevation.png", width = 600)
+bind_rows(gratia::smooth_estimates(m_dist, smooth = "s(elevation)") %>%
+  gratia::add_confint() %>%
+    mutate(model = "distance"),
+  gratia::smooth_estimates(m_azimuth, smooth = "s(elevation)") %>%
+    gratia::add_confint() %>%
+    mutate(model = "azimuth")) %>%
+  mutate(model = factor(model, labels = c("Azimuth", "Distance"))) %>%
+  ggplot(aes(y = est, x = elevation, colour = model, fill = model)) +
+  geom_ribbon(aes(ymin = lower_ci, ymax = upper_ci),
+              alpha = 0.2) +
+  geom_line(size = 1.5) +
+  geom_vline(aes(xintercept = 950),
+             linetype = "dashed",
+             colour = "darkred",
+             size = 1) +
+  labs(y = "Partial effect",
+       x = "Elevation (mb)") +
+  facet_wrap(~ model,
+             ncol = 1,
+             scales = "free") +
+  scale_fill_manual(
+    values = c("dark green", "darkgoldenrod"),
+    name = "Metric"
+  ) +
+  scale_colour_manual(
+    values = c("dark green", "darkgoldenrod"),
+    name = "Metric"
+  ) +
+  theme_bw()
+dev.off()
 
 diff_new <- with(all_diff,
                  expand.grid(

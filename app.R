@@ -53,13 +53,13 @@ tz_choices <- c(
 
 ui <- shinyUI(
   navbarPage(
-    "Wind Forecast Tool v0.3.0",
-    selected = "Simulation",
+    "Wind Forecast Tool v0.4.0",
+    # selected = "Simulation",
     theme = shinytheme("yeti"),
 
-    # Panel 1 -----------------------------------------------------------------
-    tabPanel(
-      "Simulation",
+    # # Panel 1 -----------------------------------------------------------------
+    # tabPanel(
+    #   "Simulation",
 
       column(
         width = 4,
@@ -88,25 +88,28 @@ ui <- shinyUI(
         ),
 
 
-        sliderTextInput(
-          inputId = "nsim",
-          label = "Number of simulations",
-          choices = seq(1, 30, 1),
-          selected = 5,
-          grid = TRUE
-        ),
+        # sliderTextInput(
+        #   inputId = "nsim",
+        #   label = "Number of simulations",
+        #   choices = seq(1, 30, 1),
+        #   selected = 5,
+        #   grid = TRUE
+        # ),
+        #
+        # selectInput(
+        #   inputId = "level",
+        #   label = "Select atmospheric level",
+        #   choices = c("850mb", "950mb"),
+        #   selected = "950mb",
+        #   width = "100%"
+        # ),
 
+        h5("Select simulation direction:"),
         selectInput(
-          inputId = "level",
-          label = "Select atmospheric level",
-          choices = c("850mb", "950mb"),
-          selected = "950mb",
-          width = "100%"
-        ),
-
-        tags$div(
-          h5("Backward simulation?"),
-          checkboxInput("backwards_checkbox", "", value = FALSE)
+          "direction",
+          "Direction",
+          choices = c("Forward", "Backward"),
+          selected = "Forward"
         ),
 
         shiny::splitLayout(
@@ -144,14 +147,15 @@ ui <- shinyUI(
           withSpinner(color = "#428bca")# "#0dc5c1"
 
       )
-    ),
-
-    # Panel 2 -----------------------------------------------------------------
-    tabPanel("About",
-
-             includeMarkdown("README.md"))
-
-  )
+    )
+  #   ,
+  #
+  #   # Panel 2 -----------------------------------------------------------------
+  #   tabPanel("About",
+  #
+  #            includeMarkdown("README.md"))
+  #
+  # )
 )
 
 
@@ -275,36 +279,43 @@ server <- function(input, output, session) {
     }
   })
 
-  # Initialize the backwards value to FALSE
-  backwards <- reactiveVal(FALSE)
-
-  # Listen to the checkbox input
-  observeEvent(input$backwards_checkbox, {
-    # Update the backwards value based on the checkbox status
-    backwards(input$backwards_checkbox)
-  })
-
   # run the simulation
   observeEvent(input$run, {
-    wind_info$predmap <- wind_sim(
+    wind_info$predmap <- {
+      # Create a Progress object
+      progress <- shiny::Progress$new(max = 10 * input$nforecast)
+      progress$set(message = "Simulating", value = 0)
+      # Close the progress when this reactive exits (even if there's an error)
+      on.exit(progress$close())
+
+      # Create a callback function to update progress.
+      # Each time this is called:
+      # - If `value` is NULL, it will move the progress bar 1/5 of the remaining
+      #   distance. If non-NULL, it will set the progress to that value.
+      # - It also accepts optional detail text.
+      updateProgress <- function(value = NULL) {
+        if (is.null(value)) {
+          value <- progress$getValue()
+          value <- value + (progress$getMax() - value) / 5
+        }
+        progress$set(value = value)
+      }
+
+      wind_sim(
       data_path = "wind-data",
       coords = list(c(input_coords$long, input_coords$lat)),
-      # long = input_coords$long,
-      # lat = input_coords$lat,
       nforecast = input$nforecast,
-      nsim = input$nsim,
+      nsim = 10,
       fdate = format(as.Date(wind_info$selected_time_utc), "%Y%m%d"),
       fhour =  format(wind_info$selected_time_utc, "%H"),
-      atm_level = input$level,
-      backwards = backwards()
+      atm_level = "950mb",
+      backwards = ifelse(input$direction == "Forward", F, T),
+      updateProgress = updateProgress
     )
+    }
 
-  })
-
-
-  output$prediction <- renderPlot({
-    if (backwards())
-      title_text <-
+    if (input$direction == "Backward")
+      wind_info$title_text <-
         sprintf(
           "Backwards projection initiated at %s %s:00 %s | Duration: %s hours\nLongitude: %s  Latitude: %s",
           format(lubridate::ymd_hms(paste0(
@@ -320,7 +331,7 @@ server <- function(input, output, session) {
           input_coords$lat
         )
     else
-      title_text <-
+      wind_info$title_text <-
         sprintf(
           "Forecast initiated at %s %s:00 %s | Duration: %s hours\nLongitude: %s  Latitude: %s",
           input$forec_date,
@@ -331,7 +342,10 @@ server <- function(input, output, session) {
           input_coords$lat
         )
 
+  })
 
+
+  output$prediction <- renderPlot({
     # plot(generate_plot())
 
     req(input$run)
@@ -396,11 +410,8 @@ server <- function(input, output, session) {
           labs(x = "Longitude",
                y = "Latitude",
                fill = "Frequency") +
-          ggtitle(title_text)
+          ggtitle(wind_info$title_text)
       }
-
-      # save plot in home
-      # ggsave(filename = "~/phenology.png", plot = generate_plot(), device = 'png')
 
     })
 

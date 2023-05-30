@@ -18,8 +18,8 @@ wind_sim <- function(data_path = "wind-data",
                      full = F, # if TRUE, generate a dataframe of endpoints per time step
                      parallel = F, # if TRUE run in parallel
                      ncores = F, # if FALSE (default) use max number of cores - 1. Else set to number of cores to use
-                     backwards = F # if FALSE (default) run forwards simulation from starting point. Else backwards from end point
-                     ){
+                     backwards = F, # if FALSE (default) run forwards simulation from starting point. Else backwards from end point
+                     updateProgress = NULL){
 
   require(tidyverse)
   require(terra)
@@ -177,7 +177,7 @@ wind_sim <- function(data_path = "wind-data",
     npoint <- list()
 
     print("Simulating:")
-    progress_bar = txtProgressBar(min=0, max=length(coords), style = 3, char="=")
+    progress_bar = txtProgressBar(min=0, max=length(coords) * nsim * nforecast, style = 3, char="=")
 
     for(point in 1:length(coords)){
       # extract coordinates
@@ -265,6 +265,18 @@ wind_sim <- function(data_path = "wind-data",
             points[n, "y"] <- newpoint[2]
             points[n, "nforecast"] <- f
           }
+
+          setTxtProgressBar(progress_bar,
+                            value = (point - 1) * nsim * nforecast +
+                              (rep - 1) * nforecast +
+                              f)
+
+          # If we were passed a progress update function, call it
+          if (is.function(updateProgress)) {
+            updateProgress(value = (point - 1) * nsim * nforecast +
+                             (rep - 1) * nforecast +
+                             f)
+          }
         }
 
         if(full) {
@@ -281,8 +293,6 @@ wind_sim <- function(data_path = "wind-data",
 
         } else
           npoint[[point]] <- raster::raster(fct_raster)
-
-        setTxtProgressBar(progress_bar, value = point)
       }
     }
   }
