@@ -27,7 +27,7 @@ wind_sim <- function(data_path = "wind-data",
   difference = 0
 
   if(backwards){
-    fdate = as.character(format(as.POSIXct(lubridate::ymd(fdate) - lubridate::hours(23),format='%m/%d/%Y %H:%M:%S'),format='%Y%m%d'))
+    fdate = as.character(format(as.POSIXct(lubridate::ymd_h(paste(fdate, fhour)) - lubridate::hours(as.numeric(nforecast)),format='%m/%d/%Y %H:%M:%S'),format='%Y%m%d'))
 
     fhour = as.character(lubridate::hour(lubridate::hours(as.numeric(fhour)) - lubridate::hours(nforecast)) %% 24)
 
@@ -269,13 +269,13 @@ wind_sim <- function(data_path = "wind-data",
           setTxtProgressBar(progress_bar,
                             value = (point - 1) * nsim * nforecast +
                               (rep - 1) * nforecast +
-                              f)
+                              which(forecast_hours == f))
 
           # If we were passed a progress update function, call it
           if (is.function(updateProgress)) {
             updateProgress(value = (point - 1) * nsim * nforecast +
                              (rep - 1) * nforecast +
-                             f)
+                             which(forecast_hours == f))
           }
         }
 
