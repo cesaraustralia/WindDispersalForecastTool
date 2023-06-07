@@ -53,7 +53,7 @@ tz_choices <- c(
 
 ui <- shinyUI(
   navbarPage(
-    "Wind Forecast Tool v0.4.1",
+    "Wind Forecast Tool v0.4.2",
     # selected = "Simulation",
     theme = shinytheme("yeti"),
 
@@ -165,7 +165,7 @@ server <- function(input, output, session) {
   observeEvent(c(input$forec_date, input$timezone), {
     tz <- input$timezone
 
-    # original choices in UTC
+    # original choices
     original_choices <-
       lubridate::with_tz(lubridate::ymd_hms(paste0(
         format(input$forec_date, "%Y-%m-%d"),
@@ -175,11 +175,18 @@ server <- function(input, output, session) {
       tz = "Australia/Melbourne"),
       tz = tz)
 
-    # convert original choices to selected timezone
+    original_choices <- lubridate::ymd_hms(paste0(
+      format(input$forec_date, "%Y-%m-%d"),
+      " ",
+      format(original_choices, "%H:%M:%S")
+      ),
+      tz = tz)
+
+    # filter original choices by selected timezone
     filtered_choices <-
-      original_choices[
+      sort(original_choices[
     original_choices <= with_tz(lubridate::ymd_hms(paste0(format(lubridate::today(), "%Y-%m-%d"), " ", "08:00:00"), tz = "Australia/Brisbane"), tz)
-      ]
+      ])
 
     # Adjust time choices based on selected date
     time_choices <- format(filtered_choices, "%H:%M")
