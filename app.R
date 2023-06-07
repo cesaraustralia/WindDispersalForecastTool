@@ -53,7 +53,7 @@ tz_choices <- c(
 
 ui <- shinyUI(
   navbarPage(
-    "Wind Forecast Tool v0.4.0",
+    "Wind Forecast Tool v0.4.1",
     # selected = "Simulation",
     theme = shinytheme("yeti"),
 
@@ -64,7 +64,15 @@ ui <- shinyUI(
       column(
         width = 4,
 
-        h5("Select meteorological forecast cycle:"),
+        h5("Select simulation direction:"),
+        selectInput(
+          "direction",
+          "Direction",
+          choices = c("Forward", "Backward"),
+          selected = "Forward"
+        ),
+
+        h5("Select start time for simulation:"),
         selectInput(
           "timezone",
           "Timezone",
@@ -72,44 +80,19 @@ ui <- shinyUI(
           selected = "Australia/Melbourne"
         ),
 
-        h5(
-          "Forecasts are released every day at 8AM AEST*, and are available for the cycle in the preceding 24hrs."
+        uiOutput("warning_text"),
+
+        shiny::splitLayout(
+          uiOutput("forec_date"),
+          uiOutput("forec_time")
         ),
-
-        uiOutput("forec_date_and_time"),
-
 
         sliderTextInput(
           inputId = "nforecast",
           label = "Total run time (hours)",
-          choices = seq(1, 48, 1),
-          selected = 24,
+          choices = seq(1, 24, 1),
+          selected = 12,
           grid = TRUE
-        ),
-
-
-        # sliderTextInput(
-        #   inputId = "nsim",
-        #   label = "Number of simulations",
-        #   choices = seq(1, 30, 1),
-        #   selected = 5,
-        #   grid = TRUE
-        # ),
-        #
-        # selectInput(
-        #   inputId = "level",
-        #   label = "Select atmospheric level",
-        #   choices = c("850mb", "950mb"),
-        #   selected = "950mb",
-        #   width = "100%"
-        # ),
-
-        h5("Select simulation direction:"),
-        selectInput(
-          "direction",
-          "Direction",
-          choices = c("Forward", "Backward"),
-          selected = "Forward"
         ),
 
         shiny::splitLayout(
@@ -144,7 +127,7 @@ ui <- shinyUI(
         HTML("<br/>"),
 
         plotOutput("prediction", height = "500px") %>%
-          withSpinner(color = "#428bca")# "#0dc5c1"
+          withSpinner(color = "#428bca")
 
       )
     )
@@ -160,44 +143,56 @@ ui <- shinyUI(
 
 
 server <- function(input, output, session) {
-  output$forec_date_and_time <- renderUI({
+  output$warning_text <- renderUI({
     tz <- input$timezone
-    now_utc <- lubridate::now(tzone = "UTC")
-    now_selected_tz <- lubridate::with_tz(now_utc, tz)
+
+    end_time <- lubridate::with_tz(lubridate::ymd_hms(paste0(format(lubridate::today(), "%Y-%m-%d"), " ", "08:00:00"), tz = "Australia/Brisbane"), tz)
+    h5(class = "warning-message", sprintf("Latest available starting time is %s*.", end_time))
+  })
+
+  output$forec_date <- renderUI({
+    tz <- input$timezone
+
+    dateInput(
+      "forec_date",
+      label = "Date",
+      value = lubridate::today(tzone = tz),
+      min = lubridate::today(tzone = tz) - lubridate::days(7),
+      max = lubridate::today(tzone = tz)
+    )
+  })
+
+  observeEvent(c(input$forec_date, input$timezone), {
+    tz <- input$timezone
 
     # original choices in UTC
-    original_choices_utc <-
-      lubridate::ymd_hms(paste0(
-        format(now_utc, "%Y-%m-%d"),
+    original_choices <-
+      lubridate::with_tz(lubridate::ymd_hms(paste0(
+        format(input$forec_date, "%Y-%m-%d"),
         " ",
-        c("00:00:00", "06:00:00", "12:00:00", "18:00:00")
-      ), tz = "UTC")
+        sprintf("%s:00:00", seq(0, 23))
+      ),
+      tz = "Australia/Melbourne"),
+      tz = tz)
 
     # convert original choices to selected timezone
-    converted_choices_selected_tz <-
-      lubridate::with_tz(original_choices_utc, tz)
+    filtered_choices <-
+      original_choices[
+    original_choices <= with_tz(lubridate::ymd_hms(paste0(format(lubridate::today(), "%Y-%m-%d"), " ", "08:00:00"), tz = "Australia/Brisbane"), tz)
+      ]
 
-    shiny::splitLayout(
-      dateInput(
-        "forec_date",
-        label = "Date",
-        value = lubridate::today(tzone = tz),
-        min = lubridate::today(tzone = tz) - lubridate::days(7),
-        max = lubridate::today(tzone = tz)
-      ),
+    # Adjust time choices based on selected date
+    time_choices <- format(filtered_choices, "%H:%M")
 
+    output$forec_time <- renderUI({
       selectizeInput(
         inputId = "forec_time",
         label = "Time",
-        choices = sort(lubridate::hour(
-          lubridate::ceiling_date(converted_choices_selected_tz, "hour")
-        )),
+        choices = time_choices,
         options = list(dropdownParent = 'body', create = 0),
-        selected = max(lubridate::hour(
-          lubridate::ceiling_date(converted_choices_selected_tz, "hour")
-        ))
+        selected = min(time_choices)
       )
-    )
+    })
   })
 
 
@@ -211,7 +206,7 @@ server <- function(input, output, session) {
       lubridate::ymd_hms(paste0(
         format(input$forec_date, "%Y-%m-%d"),
         " ",
-        input$forec_time,
+        hour(hm(input$forec_time)),
         ":00:00"
       ), tz = tz)
     wind_info$selected_time_utc <-
@@ -230,6 +225,7 @@ server <- function(input, output, session) {
       }
     }
   })
+
   # add the small map
   output$smap <- renderLeaflet({
     isolate({
@@ -317,14 +313,9 @@ server <- function(input, output, session) {
     if (input$direction == "Backward")
       wind_info$title_text <-
         sprintf(
-          "Backwards projection initiated at %s %s:00 %s | Duration: %s hours\nLongitude: %s  Latitude: %s",
-          format(lubridate::ymd_hms(paste0(
-            format(input$forec_date, "%Y-%m-%d"),
-            " ",
-            input$forec_time,
-            ":00:00"
-          ), tz = input$timezone) - lubridate::hours(input$nforecast), "%Y-%m-%d"),
-          as.character(lubridate::hour(lubridate::hours(as.numeric(input$forec_time)) - lubridate::hours(input$nforecast)) %% 24),
+          "Backwards projection initiated at %s %s %s | Duration: %s hours\nLongitude: %s  Latitude: %s",
+          input$forec_date,
+          input$forec_time,
           input$timezone,
           input$nforecast,
           input_coords$long,
@@ -333,7 +324,7 @@ server <- function(input, output, session) {
     else
       wind_info$title_text <-
         sprintf(
-          "Forecast initiated at %s %s:00 %s | Duration: %s hours\nLongitude: %s  Latitude: %s",
+          "Forecast initiated at %s %s %s | Duration: %s hours\nLongitude: %s  Latitude: %s",
           input$forec_date,
           input$forec_time,
           input$timezone,

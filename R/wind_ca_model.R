@@ -24,26 +24,33 @@ wind_sim <- function(data_path = "wind-data",
   require(tidyverse)
   require(terra)
 
-  difference = 0
+  # identify the correct forecast cycle
+
+  # define the interval
+  interval <- c("00", "06", "12", "18")
 
   if(backwards){
+    # update date and time based on length of hindcast
     fdate = as.character(format(as.POSIXct(lubridate::ymd_h(paste(fdate, fhour)) - lubridate::hours(as.numeric(nforecast)),format='%m/%d/%Y %H:%M:%S'),format='%Y%m%d'))
 
     fhour = as.character(lubridate::hour(lubridate::hours(as.numeric(fhour)) - lubridate::hours(nforecast)) %% 24)
-
-    # define the interval
-    interval <- c("00", "06", "18")
-
-    # calculate the index of the closest interval
-    index <- which.min(abs(as.numeric(fhour) - as.numeric(interval)))
-
-    # calculate the difference
-    difference <- as.numeric(fhour) - as.numeric(interval[index])
-
-    # get the corresponding interval
-    fhour <- interval[index]
   }
 
+  # find closest interval
+  diffs <- as.numeric(fhour) - as.numeric(interval)
+
+  diffs[which(diffs < 0)] <- NA
+
+  # calculate the index of the closest interval
+  index <- which.min(diffs)
+
+  # calculate the difference
+  difference <- as.numeric(fhour) - as.numeric(interval[index])
+
+  # get the corresponding interval
+  fhour <- interval[index]
+
+  # load data
   pathway <- file.path(data_path, fdate, fhour)
 
   files <- gfs_names(path = pathway)
@@ -338,7 +345,7 @@ wind_sim_hist <- function(data_u = NULL,
                      ifelse(as.numeric(fhour) %in% c(6:11), "06",
                             ifelse(as.numeric(fhour) %in% c(12:17), "12",
                                    ifelse(as.numeric(fhour) %in% c(18:23), "18",
-                                   NA))))
+                                          NA))))
   if(is.na(fhour_utc))
     stop("fhour should be between 0-23")
 
