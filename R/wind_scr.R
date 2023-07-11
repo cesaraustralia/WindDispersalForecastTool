@@ -46,20 +46,22 @@ wind_speed <- function(u, v){
 # }
 
 # read the u component
-read_u <- function(path = "Data/", files_list, fcast, lev = "850mb"){
+read_u <- function(path = "Data/", files_list, date, fcast, lev = "850mb"){
   files_list %>%
     dplyr::filter(comp == "ugrd") %>%
     dplyr::filter(level == lev) %>%
+    dplyr::filter(date == date) %>%
     dplyr::filter(forecast == fcast) %>%
     pull(file) %>%
     file.path(path, .) %>%
     terra::rast()
 }
 # read the u component
-read_v <- function(path = "Data/", files_list, fcast, lev = "850mb"){
+read_v <- function(path = "Data/", files_list, date, fcast, lev = "850mb"){
   files_list %>%
     dplyr::filter(comp == "vgrd") %>%
     dplyr::filter(level == lev) %>%
+    dplyr::filter(date == date) %>%
     dplyr::filter(forecast == fcast) %>%
     pull(file) %>%
     file.path(path, .) %>%

@@ -55,6 +55,16 @@ wind_sim <- function(data_path = "wind-data",
 
   files <- gfs_names(path = pathway)
 
+  if(nforecast > 48){
+    nfdate = as.character(format(lubridate::ymd(fdate) + 2, "%Y%m%d"))
+    npathway = file.path(data_path, nfdate, fhour)
+
+    nfiles <- gfs_names(path = npathway)
+    nfiles$forecast <- sprintf("f%03d" ,as.numeric(stringr::str_remove(nfiles$forecast, "f")) + 48)
+
+    files <- bind_rows(files, nfiles)
+  }
+
   if(parallel){
     require(doSNOW)
     require(foreach)
@@ -72,31 +82,38 @@ wind_sim <- function(data_path = "wind-data",
     registerDoSNOW(cl)
 
     print("Simulating:")
-    pb <- txtProgressBar(min=0, max=length(coords), style = 3, char="=")
-    progress <- function(n) setTxtProgressBar(pb, n)
+    pb <- txtProgressBar(min=0, max=length(coords) * nsim , style = 3, char="=")
+    progress <- function(n) {
+      setTxtProgressBar(pb, n)
+
+      # If we were passed a progress update function, call it
+      if (is.function(updateProgress)) {
+        updateProgress(value = n)
+      }
+    }
     opts <- list(progress = progress)
 
-    npoint <- foreach(point = 1:length(coords), .packages = c("tidyverse", "terra"), .export = c("read_u", "read_v", "wind_speed", "wind_direction", "next_cell"), .options.snow = opts) %dopar% {
-      r <- terra::rast(file.path(data_path, files$file[1]))
+    npoint <- foreach(point = 1:length(coords), .combine = "c") %:%
+      foreach(rep = seq_len(nsim), .packages = c("tidyverse", "terra"), .export = c("read_u", "read_v", "wind_speed", "wind_direction", "next_cell"), .options.snow = opts, .combine = "c") %dopar% {
 
-      # extract coordinates
-      long = coords[[point]][1]
-      lat = coords[[point]][2]
+        r <- terra::rast(file.path(data_path, fdate, fhour, files$file[1]))
 
-      # empty raster for simulations
-      fct_raster <- r
-      fct_raster[] <- 0
-      names(fct_raster) <- "wind_forecast"
+        # extract coordinates
+        long = coords[[point]][1]
+        lat = coords[[point]][2]
 
-      xlen <- terra::ncol(r)
-      ylen <- terra::nrow(r)
+        # empty raster for simulations
+        fct_raster <- r
+        fct_raster[] <- 0
+        names(fct_raster) <- "wind_forecast"
 
-      # weights for the output
-      wt <- c(1, 1, 1, 1, 3, 1, 1, 1, 1)
+        xlen <- terra::ncol(r)
+        ylen <- terra::nrow(r)
 
-      points_full <- tibble(x = numeric(), y = numeric(), nsim = numeric(), nforecast = numeric())
+        # weights for the output
+        wt <- c(1, 1, 1, 1, 3, 1, 1, 1, 1)
 
-      for(rep in seq_len(nsim)){
+        points_full <- tibble(x = numeric(), y = numeric(), nsim = numeric(), nforecast = numeric())
 
         points <- data.frame(x = colFromX(r, long),
                              y = rowFromY(r, lat),
@@ -104,19 +121,34 @@ wind_sim <- function(data_path = "wind-data",
 
         n <- 1
 
-        for(f in seq_len(nforecast)){
+        forecast_hours <- seq_len(nforecast)
+        if(backwards) forecast_hours <- rev(forecast_hours)
+
+        for(f in forecast_hours){
+
+          if(f > 48){
+            read_date = nfdate
+            read_pathway = npathway
+            difference = 0
+          } else {
+            read_date = fdate
+            read_pathway = pathway
+          }
 
           x <- points[n, 1]
           y <- points[n, 2]
 
           forecasts <- unique(files$forecast)
 
-          u <- read_u(path = data_path, files_list = files, fcast = forecasts[f], lev = atm_level)
-          v <- read_v(path = data_path, files_list = files, fcast = forecasts[f], lev = atm_level)
+          u <- read_u(path = read_pathway, files_list = files, date = read_date, fcast = forecasts[f + difference], lev = atm_level)
+          v <- read_v(path = read_pathway, files_list = files, date = read_date, fcast = forecasts[f + difference], lev = atm_level)
 
           # calculate wind speed and direction
           speed <- wind_speed(u = u, v = v)
           direction <- wind_direction(u = u, v = v)
+
+          if(backwards)
+            direction <- (direction + 180) %% 360
 
           speed_ctr <- speed[y, x][1,1]
 
@@ -160,7 +192,7 @@ wind_sim <- function(data_path = "wind-data",
           }
         }
 
-        if (full)
+        if (full) {
           points_full <- bind_rows(points_full,
                                    as_tibble(xyFromCell(r,
                                                         cellFromRowCol(r,
@@ -170,12 +202,10 @@ wind_sim <- function(data_path = "wind-data",
                                             nforecast = points$nforecast,
                                             x_start = long,
                                             y_start = lat))
-      }
-
-      if(full)
-        list(raster::raster(fct_raster), points_full) else
+          list(raster::raster(fct_raster), points_full)
+        } else
           raster::raster(fct_raster)
-    }
+      }
     close(pb)
     stopCluster(cl)
   } else {
@@ -217,13 +247,22 @@ wind_sim <- function(data_path = "wind-data",
 
         for(f in forecast_hours){
 
+          if(f > 48){
+            read_date = nfdate
+            read_pathway = npathway
+            difference = 0
+          } else {
+            read_date = fdate
+            read_pathway = pathway
+          }
+
           x <- points[n, 1]
           y <- points[n, 2]
 
           forecasts <- unique(files$forecast)
 
-          u <- read_u(path = pathway, files_list = files, fcast = forecasts[f + difference], lev = atm_level)
-          v <- read_v(path = pathway, files_list = files, fcast = forecasts[f + difference], lev = atm_level)
+          u <- read_u(path = read_pathway, files_list = files, date = read_date, fcast = forecasts[f + difference], lev = atm_level)
+          v <- read_v(path = read_pathway, files_list = files, date = read_date, fcast = forecasts[f + difference], lev = atm_level)
 
           # calculate wind speed and direction
           speed <- wind_speed(u = u, v = v)
@@ -305,20 +344,20 @@ wind_sim <- function(data_path = "wind-data",
   }
 
   if(full) {
-    fct_raster <- stack(lapply(npoint, "[[", 1))
+    fct_raster <- raster::stack(lapply(npoint, "[[", 1))
     fct_raster <- raster::calc(fct_raster, sum)
     fct_raster[fct_raster == 0] <- NA
     points_full <- lapply(npoint, "[[", 2)
     return(list(rast(fct_raster), bind_rows(points_full)))
   } else {
     if (length(npoint) > 1) {
-      fct_raster <- ifelse(length(npoint) > 1, stack(npoint), as(fct_raster, "Raster"))
+      fct_raster <- raster::stack(npoint)
       fct_raster <- raster::calc(fct_raster, sum)
     } else
       fct_raster <- raster::raster(fct_raster)
 
     fct_raster[fct_raster == 0] <- NA
-    return(rast(fct_raster))
+    return(terra::rast(fct_raster))
   }
 }
 
@@ -599,7 +638,7 @@ wind_sim_hist <- function(data_u = NULL,
 
   if(full) {
     if (length(npoint) > 1) {
-      fct_raster <- stack(lapply(npoint, "[[", 1))
+      fct_raster <- raster::stack(lapply(npoint, "[[", 1))
       fct_raster <- raster::calc(fct_raster, sum)
     } else
       fct_raster <- raster::raster(fct_raster)
@@ -607,15 +646,15 @@ wind_sim_hist <- function(data_u = NULL,
     fct_raster[fct_raster == 0] <- NA
 
     points_full <- lapply(npoint, "[[", 2)
-    return(list(rast(fct_raster), bind_rows(points_full)))
+    return(list(terra::rast(fct_raster), bind_rows(points_full)))
   } else {
     if (length(npoint) > 1) {
-      fct_raster <- stack(npoint)
+      fct_raster <- raster::stack(npoint)
       fct_raster <- raster::calc(fct_raster, sum)
     } else
       fct_raster <- raster::raster(fct_raster)
 
     fct_raster[fct_raster == 0] <- NA
-    return(rast(fct_raster))
+    return(terra::rast(fct_raster))
   }
 }

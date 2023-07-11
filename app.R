@@ -8,6 +8,7 @@ library(leaflet)
 library(terra)
 library(rasterVis)
 library(sf)
+library(photobiology)
 
 
 # read the wind functions
@@ -33,6 +34,9 @@ xy_in_aus <- function(long, lat) {
     nrow() != 0
 }
 
+# load localities for rapid prediction
+localities <- as.data.frame(read_csv("localities.csv"))
+
 # base url for Cesar S3 API for wind data
 # apiurl <- "https://gwtiioyhfg.execute-api.ap-southeast-2.amazonaws.com/api/cesar-storage/wind-data"
 
@@ -53,13 +57,52 @@ tz_choices <- c(
 
 ui <- shinyUI(
   navbarPage(
-    "Wind Forecast Tool v0.4.2",
-    # selected = "Simulation",
+    "Wind Forecast Tool v0.5.0",
+    selected = "Rapid Prediction",
     theme = shinytheme("yeti"),
 
-    # # Panel 1 -----------------------------------------------------------------
-    # tabPanel(
-    #   "Simulation",
+    # Panel 1 -----------------------------------------------------------------
+    tabPanel(
+      "Rapid Prediction",
+
+      column(
+        width = 4,
+
+        h5("Select timezone:"),
+        selectInput(
+          "timezone_r",
+          "Timezone",
+          choices = tz_choices,
+          selected = "Australia/Melbourne"
+        ),
+
+        h5("Simulate overnight wind-assisted dispersal from the following localities:"),
+
+        leafletOutput("map_r", height = 250),
+
+        h6(
+          "* Simulation should take approximately two and a half minutes"
+        )
+
+      ),
+      column(
+        width = 8,
+
+        HTML("<br/>"),
+        actionButton("run_r", "Run forecast"),
+        HTML("<br/>"),
+
+        plotOutput("prediction_r", height = "500px") %>%
+          withSpinner(color = "#428bca")
+
+      )
+    )
+    ,
+
+    # Panel 2 -----------------------------------------------------------------
+
+    tabPanel(
+      "Custom Simulation",
 
       column(
         width = 4,
@@ -87,30 +130,34 @@ ui <- shinyUI(
           uiOutput("forec_time")
         ),
 
-        sliderTextInput(
-          inputId = "nforecast",
-          label = "Total run time (hours)",
-          choices = seq(1, 24, 1),
-          selected = 12,
-          grid = TRUE
+        uiOutput("duration_slider"),
+
+        fluidRow(
+          column(4, textOutput("coord1")),
+          column(4, textOutput("coord2")),
+          column(4, actionButton("delete1", "Delete"))
+        ),
+        fluidRow(
+          column(4, textOutput("coord3")),
+          column(4, textOutput("coord4")),
+          column(4, actionButton("delete2", "Delete"))
+        ),
+        fluidRow(
+          column(4, textOutput("coord5")),
+          column(4, textOutput("coord6")),
+          column(4, actionButton("delete3", "Delete"))
+        ),
+        fluidRow(
+          column(4, textOutput("coord7")),
+          column(4, textOutput("coord8")),
+          column(4, actionButton("delete4", "Delete"))
+        ),
+        fluidRow(
+          column(4, textOutput("coord9")),
+          column(4, textOutput("coord10")),
+          column(4, actionButton("delete5", "Delete"))
         ),
 
-        shiny::splitLayout(
-          numericInput(
-            inputId = "x",
-            label = "Longitude",
-            value = 145.0
-          ),
-          numericInput(
-            inputId = "y",
-            label = "Latitude",
-            value = -37.8
-          )
-        ),
-
-        # HTML("<br/>"),
-        # show selected region
-        span(textOutput("checklatlong"), style = "color:red"),
         # add a leaflet map
         leafletOutput("smap", height = 250),
 
@@ -131,18 +178,183 @@ ui <- shinyUI(
 
       )
     )
-  #   ,
-  #
-  #   # Panel 2 -----------------------------------------------------------------
-  #   tabPanel("About",
-  #
-  #            includeMarkdown("README.md"))
-  #
-  # )
+
+  )
 )
 
 
 server <- function(input, output, session) {
+  # general
+  wind_info <- reactiveValues()
+  wind_info$predmap <- NULL
+  wind_info$predmap_r <- NULL
+  wind_info$selected_time <- NULL
+  wind_info$selected_time_utc <- NULL
+
+  # Panel 1: rapid prediction
+
+  # create small map
+  output$map_r <- renderLeaflet({
+    isolate({
+      leaflet(bound) %>%
+        setView(lng = 135.51,
+                lat = -25.98,
+                zoom = 3) %>%
+        addTiles() %>%
+        addPolygons(fillOpacity = 0) %>%
+        addMarkers(lng = as.numeric(localities[,2]), lat = as.numeric(localities[,3]), label = as.character(localities[,1]))
+    })
+  })
+
+  # run the simulation
+  observeEvent(input$run_r, {
+    coords_r <- lapply(1:nrow(localities), function(x) as.numeric(localities[x, 2:3]))
+
+    sunset_utc <- sunset_time(
+      date = today(input$timezone_r) - 1,
+      tz = "UTC",
+      geocode = data.frame(lon = 136.52561, lat = -16.12613)
+    )
+
+    r_date <- format(sunset_utc, "%Y%m%d")
+
+    sunset_selected <- sprintf("%02d", hour(round_date(sunset_time(
+      date = today(input$timezone_r) - 1,
+      tz = input$timezone_r,
+      geocode = data.frame(lon = 136.52561, lat = -16.12613)
+    ), "hour")))
+    sunset_utc <- sprintf("%02d", hour(round_date(sunset_utc, "hour")))
+
+    night_l <- round(
+      night_length(
+        date = today(input$timezone_r) - 1,
+        tz = "UTC",
+        geocode = data.frame(lon = 136.52561, lat = -16.12613)
+      ),
+      0
+    )
+
+    wind_info$predmap_r <- {
+
+      showNotification("Running in parallel", type = "message")
+      # Create a Progress object
+      progress <- shiny::Progress$new(max = 10 * length(coords_r))
+
+      progress$set(message = "Simulating", value = 0)
+      # Close the progress when this reactive exits (even if there's an error)
+      on.exit(progress$close())
+
+      # Create a callback function to update progress.
+      # Each time this is called:
+      # - If `value` is NULL, it will move the progress bar 1/5 of the remaining
+      #   distance. If non-NULL, it will set the progress to that value.
+      # - It also accepts optional detail text.
+      updateProgress <- function(value = NULL) {
+        if (is.null(value)) {
+          value <- progress$getValue()
+          value <- value + (progress$getMax() - value) / 5
+        }
+        progress$set(value = value)
+      }
+
+      wind_sim(
+        data_path = "wind-data",
+        coords = coords_r,
+        nforecast = night_l,
+        nsim = 10,
+        fdate = r_date,
+        fhour =  sunset_utc,
+        atm_level = "950mb",
+        updateProgress = updateProgress,
+        parallel = T
+      )
+    }
+
+    wind_info$title_text_r <-
+      sprintf(
+        "Forecast initiated at %s %s %s | Duration: %s hours",
+        as.character(today(input$timezone_r) - 1),
+        as.character(sunset_selected),
+        as.character(input$timezone_r),
+        as.character(night_l)
+      )
+
+  })
+
+  output$prediction_r <- renderPlot({
+    # plot(generate_plot())
+
+    req(input$run_r)
+
+    # make plot only react to the run button
+    isolate({
+      xt <- c(
+        floor(min(as.numeric(localities[,2]), na.rm = T)) - 18,
+        floor(max(as.numeric(localities[,2]), na.rm = T)) + 18,
+        floor(min(as.numeric(localities[,3]), na.rm = T)) - 15,
+        floor(max(as.numeric(localities[,3]), na.rm = T)) + 15
+      )
+
+      pt <-
+        data.frame(long = as.numeric(localities[,2]), lat = as.numeric(localities[,3]))
+
+      if (!is.null(wind_info$predmap_r)) {
+        r_crop <- terra::crop(wind_info$predmap_r, xt)
+        r_crop <-
+          r_crop / global(r_crop, max, na.rm = TRUE)[1, 1] * 100
+
+        gplot(r_crop, maxpixels = 500000) +
+          geom_tile(aes(fill = value), alpha = 0.8) +
+          viridis::scale_fill_viridis(option = "D",
+                                      direction = -1,
+                                      na.value = NA) +
+          geom_point(
+            data = pt,
+            aes(x = long, y = lat),
+            inherit.aes = FALSE,
+            col = "red",
+            alpha = 0.8,
+            shape = "\u2605",
+            size = 7
+          ) +
+          geom_sf(
+            data = st_crop(border, ext(xt)),
+            inherit.aes = FALSE,
+            fill = NA
+          ) +
+          coord_sf(crs = 4326) +
+          theme_minimal() +
+          theme(
+            plot.title = element_text(size = 14),
+            axis.text = element_text(size = 14),
+            axis.title = element_text(size = 15),
+            legend.text = element_text(size = 13),
+            legend.title = element_text(size = 13),
+            axis.title.x = element_text(margin = margin(
+              t = 15,
+              r = 0,
+              b = 0,
+              l = 0
+            )),
+            axis.title.y = element_text(margin = margin(
+              t = 0,
+              r = 15,
+              b = 0,
+              l = 0
+            ))
+          ) +
+          labs(x = "Longitude",
+               y = "Latitude",
+               fill = "Frequency") +
+          ggtitle(wind_info$title_text_r)
+      }
+
+    })
+
+  })
+
+
+  # Panel 2: custom simulation
   output$warning_text <- renderUI({
     tz <- input$timezone
 
@@ -162,6 +374,34 @@ server <- function(input, output, session) {
     )
   })
 
+  observeEvent(input$direction, {
+    direction <- input$direction
+
+    if(direction == "Forward"){
+      output$duration_slider <- renderUI({
+        sliderTextInput(
+          inputId = "nforecast",
+          label = "Total run time (hours)",
+          choices = seq(1, 24, 1),
+          selected = 12,
+          grid = TRUE
+        )
+      })
+    }
+
+    if(direction == "Backward"){
+      output$duration_slider <- renderUI({
+        sliderTextInput(
+          inputId = "nforecast",
+          label = "Total run time (hours)",
+          choices = seq(1, 96, 1),
+          selected = 12,
+          grid = TRUE
+        )
+      })
+    }
+  })
+
   observeEvent(c(input$forec_date, input$timezone), {
     tz <- input$timezone
 
@@ -179,13 +419,13 @@ server <- function(input, output, session) {
       format(input$forec_date, "%Y-%m-%d"),
       " ",
       format(original_choices, "%H:%M:%S")
-      ),
-      tz = tz)
+    ),
+    tz = tz)
 
     # filter original choices by selected timezone
     filtered_choices <-
       sort(original_choices[
-    original_choices <= with_tz(lubridate::ymd_hms(paste0(format(lubridate::today(), "%Y-%m-%d"), " ", "08:00:00"), tz = "Australia/Brisbane"), tz)
+        original_choices <= with_tz(lubridate::ymd_hms(paste0(format(lubridate::today(), "%Y-%m-%d"), " ", "08:00:00"), tz = "Australia/Brisbane"), tz)
       ])
 
     # Adjust time choices based on selected date
@@ -202,11 +442,6 @@ server <- function(input, output, session) {
     })
   })
 
-
-  wind_info <- reactiveValues()
-  wind_info$predmap <- NULL
-  wind_info$selected_time <- NULL
-  wind_info$selected_time_utc <- NULL
   observeEvent(c(input$forec_date, input$forec_time), {
     tz <- input$timezone
     selected_time <-
@@ -220,18 +455,15 @@ server <- function(input, output, session) {
       lubridate::with_tz(selected_time, "UTC")
   })
 
-  # set default values for click
-  input_coords <- reactiveValues()
-  input_coords$long <- 145.0
-  input_coords$lat <- -37.8
-  observe({
-    if (!is.null(input$smap_click)) {
-      if (xy_in_aus(input$smap_click$lng, input$smap_click$lat)) {
-        input_coords$long <- round(input$smap_click$lng, 3)
-        input_coords$lat <- round(input$smap_click$lat, 3)
-      }
-    }
-  })
+  selected_localities <- reactiveValues(
+    coordinates = matrix(
+      c(145, -37.8, NA, NA, NA, NA, NA, NA, NA, NA),
+      nrow = 5,
+      ncol = 2,
+      byrow = TRUE
+    ),
+    count = 1
+  )
 
   # add the small map
   output$smap <- renderLeaflet({
@@ -242,51 +474,173 @@ server <- function(input, output, session) {
                 zoom = 3) %>%
         addTiles() %>%
         addPolygons(fillOpacity = 0) %>%
-        addMarkers(lng = input_coords$long, lat = input_coords$lat)
+        addMarkers(lng = na.omit(selected_localities$coordinates[, 1]), lat = na.omit(selected_localities$coordinates[, 2]))
     })
   })
-  # update the click and marker without changing zoom and reloading
+
   observeEvent(input$smap_click, {
+    if (selected_localities$count < 5) {
+      selected_localities$count <- selected_localities$count + 1
+      empty_rows <- which(is.na(selected_localities$coordinates[, 1]))
+      first_empty_row <- empty_rows[1]
+      selected_localities$coordinates[first_empty_row, 1] <- input$smap_click$lng
+      selected_localities$coordinates[first_empty_row, 2] <- input$smap_click$lat
+      updateNumericInput(session, paste0("x", first_empty_row), value = round(input$smap_click$lng, 3))
+      updateNumericInput(session, paste0("y", first_empty_row), value = round(input$smap_click$lat, 3))
+    } else {
+      showNotification("Maximum no. of localities reached", type = "error")
+    }
+  })
+
+  observe({
     leafletProxy("smap") %>%
       clearMarkers() %>%
-      addMarkers(lng = input$smap_click$lng,
-                 lat = input$smap_click$lat)
-  })
-  # update the map if x and y changes
-  listen_to_xy <- reactive({
-    list(input$x, input$y)
-  })
-  # update the markers
-  observeEvent(listen_to_xy(), {
-    input_coords$long <- round(input$x, 3)
-    input_coords$lat <- round(input$y, 3)
+      addMarkers(lng = na.omit(selected_localities$coordinates[, 1]), lat = na.omit(selected_localities$coordinates[, 2]))
   })
 
-  # update the inputs based on click
-  observe({
-    updateNumericInput(session, "x",
-                       value = input_coords$long)
-    updateNumericInput(session, "y",
-                       value = input_coords$lat)
+  # delete buttons
+  observeEvent(input$delete1, {
+    selected_localities$count <- selected_localities$count - 1
+    selected_localities$coordinates[1, ] <- NA
+    updateNumericInput(session, "x1", value = NA)
+    updateNumericInput(session, "y1", value = NA)
+    leafletProxy("smap") %>%
+      clearMarkers()
   })
 
+  observeEvent(input$delete2, {
+    selected_localities$count <- selected_localities$count - 1
+    selected_localities$coordinates[2, ] <- NA
+    updateNumericInput(session, "x2", value = NA)
+    updateNumericInput(session, "y2", value = NA)
+    leafletProxy("smap") %>%
+      clearMarkers()
+  })
 
-  # show coordinates with click
-  output$checklatlong <- renderText({
-    if (!is.null(input$smap_click)) {
-      if (!xy_in_aus(input$smap_click$lng, input$smap_click$lat)) {
-        "Selected location is not in the current forecasting range!"
-      } else {
-        NULL
-      }
+  observeEvent(input$delete3, {
+    selected_localities$count <- selected_localities$count - 1
+    selected_localities$coordinates[3, ] <- NA
+    updateNumericInput(session, "x3", value = NA)
+    updateNumericInput(session, "y3", value = NA)
+    leafletProxy("smap") %>%
+      clearMarkers()
+  })
+
+  observeEvent(input$delete4, {
+    selected_localities$count <- selected_localities$count - 1
+    selected_localities$coordinates[4, ] <- NA
+    updateNumericInput(session, "x4", value = NA)
+    updateNumericInput(session, "y4", value = NA)
+    leafletProxy("smap") %>%
+      clearMarkers()
+  })
+
+  observeEvent(input$delete5, {
+    selected_localities$count <- selected_localities$count - 1
+    selected_localities$coordinates[5, ] <- NA
+    updateNumericInput(session, "x5", value = NA)
+    updateNumericInput(session, "y5", value = NA)
+    leafletProxy("smap") %>%
+      clearMarkers()
+  })
+
+  output$coord1 <- renderText({
+    if (!is.na(selected_localities$coordinates[1, 1])) {
+      paste("Longitude:", round(selected_localities$coordinates[1, 1],3))
+    } else {
+      ""
+    }
+  })
+
+  output$coord2 <- renderText({
+    if (!is.na(selected_localities$coordinates[1, 2])) {
+      paste("Latitude:", round(selected_localities$coordinates[1, 2],3))
+    } else {
+      ""
+    }
+  })
+
+  output$coord3 <- renderText({
+    if (!is.na(selected_localities$coordinates[2, 1])) {
+      paste("Longitude:", round(selected_localities$coordinates[2, 1],3))
+    } else {
+      ""
+    }
+  })
+
+  output$coord4 <- renderText({
+    if (!is.na(selected_localities$coordinates[2, 2])) {
+      paste("Latitude:", round(selected_localities$coordinates[2, 2],3))
+    } else {
+      ""
+    }
+  })
+
+  output$coord5 <- renderText({
+    if (!is.na(selected_localities$coordinates[3, 1])) {
+      paste("Longitude:", round(selected_localities$coordinates[3, 1],3))
+    } else {
+      ""
+    }
+  })
+
+  output$coord6 <- renderText({
+    if (!is.na(selected_localities$coordinates[3, 2])) {
+      paste("Latitude:", round(selected_localities$coordinates[3, 2],3))
+    } else {
+      ""
+    }
+  })
+
+  output$coord7 <- renderText({
+    if (!is.na(selected_localities$coordinates[4, 1])) {
+      paste("Longitude:", round(selected_localities$coordinates[4, 1],3))
+    } else {
+      ""
+    }
+  })
+
+  output$coord8 <- renderText({
+    if (!is.na(selected_localities$coordinates[4, 2])) {
+      paste("Latitude:", round(selected_localities$coordinates[4, 2],3))
+    } else {
+      ""
+    }
+  })
+
+  output$coord9 <- renderText({
+    if (!is.na(selected_localities$coordinates[5, 1])) {
+      paste("Longitude:", round(selected_localities$coordinates[5, 1],3))
+    } else {
+      ""
+    }
+  })
+
+  output$coord10 <- renderText({
+    if (!is.na(selected_localities$coordinates[5, 2])) {
+      paste("Latitude:", round(selected_localities$coordinates[5, 2],3))
+    } else {
+      ""
     }
   })
 
   # run the simulation
   observeEvent(input$run, {
+    coords <- na.omit(selected_localities$coordinates)
+
     wind_info$predmap <- {
-      # Create a Progress object
-      progress <- shiny::Progress$new(max = 10 * input$nforecast)
+      if(input$nforecast > 48 && dim(coords)[1] > 1)
+      {
+        parallel = T
+        showNotification("Running in parallel", type = "message")
+        # Create a Progress object
+        progress <- shiny::Progress$new(max = 10 * dim(coords)[1])
+      } else {
+        parallel = F
+        # Create a Progress object
+        progress <- shiny::Progress$new(max = 10 * input$nforecast * dim(coords)[1])
+      }
+
       progress$set(message = "Simulating", value = 0)
       # Close the progress when this reactive exits (even if there's an error)
       on.exit(progress$close())
@@ -305,40 +659,37 @@ server <- function(input, output, session) {
       }
 
       wind_sim(
-      data_path = "wind-data",
-      coords = list(c(input_coords$long, input_coords$lat)),
-      nforecast = input$nforecast,
-      nsim = 10,
-      fdate = format(as.Date(wind_info$selected_time_utc), "%Y%m%d"),
-      fhour =  format(wind_info$selected_time_utc, "%H"),
-      atm_level = "950mb",
-      backwards = ifelse(input$direction == "Forward", F, T),
-      updateProgress = updateProgress
-    )
+        data_path = "wind-data",
+        coords = lapply(1:dim(coords)[1], function(x) coords[x,]),
+        nforecast = input$nforecast,
+        nsim = 10,
+        fdate = format(as.Date(wind_info$selected_time_utc), "%Y%m%d"),
+        fhour =  format(wind_info$selected_time_utc, "%H"),
+        atm_level = "950mb",
+        backwards = ifelse(input$direction == "Forward", F, T),
+        updateProgress = updateProgress,
+        parallel = parallel
+      )
     }
 
     if (input$direction == "Backward")
       wind_info$title_text <-
-        sprintf(
-          "Backwards projection initiated at %s %s %s | Duration: %s hours\nLongitude: %s  Latitude: %s",
-          input$forec_date,
-          input$forec_time,
-          input$timezone,
-          input$nforecast,
-          input_coords$long,
-          input_coords$lat
-        )
+      sprintf(
+        "Backwards projection initiated at %s %s %s | Duration: %s hours",
+        input$forec_date,
+        input$forec_time,
+        input$timezone,
+        input$nforecast
+      )
     else
       wind_info$title_text <-
-        sprintf(
-          "Forecast initiated at %s %s %s | Duration: %s hours\nLongitude: %s  Latitude: %s",
-          input$forec_date,
-          input$forec_time,
-          input$timezone,
-          input$nforecast,
-          input_coords$long,
-          input_coords$lat
-        )
+      sprintf(
+        "Forecast initiated at %s %s %s | Duration: %s hours",
+        input$forec_date,
+        input$forec_time,
+        input$timezone,
+        input$nforecast
+      )
 
   })
 
@@ -351,14 +702,14 @@ server <- function(input, output, session) {
     # make plot only react to the run button
     isolate({
       xt <- c(
-        floor(input_coords$long) - 18,
-        floor(input_coords$long) + 18,
-        floor(input_coords$lat) - 15,
-        floor(input_coords$lat) + 15
+        floor(min(selected_localities$coordinates[,1], na.rm = T)) - 18,
+        floor(max(selected_localities$coordinates[,1], na.rm = T)) + 18,
+        floor(min(selected_localities$coordinates[,2], na.rm = T)) - 15,
+        floor(max(selected_localities$coordinates[,2], na.rm = T)) + 15
       )
 
       pt <-
-        data.frame(long = input_coords$long, lat = input_coords$lat)
+        data.frame(long = na.omit(selected_localities$coordinates[,1]), lat = na.omit(selected_localities$coordinates[,2]))
 
       if (!is.null(wind_info$predmap)) {
         r_crop <- terra::crop(wind_info$predmap, xt)
