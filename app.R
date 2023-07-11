@@ -57,7 +57,7 @@ tz_choices <- c(
 
 ui <- shinyUI(
   navbarPage(
-    "Wind Forecast Tool v0.5.0",
+    "Wind Forecast Tool v0.5.1",
     selected = "Rapid Prediction",
     theme = shinytheme("yeti"),
 
@@ -81,7 +81,7 @@ ui <- shinyUI(
         leafletOutput("map_r", height = 250),
 
         h6(
-          "* Simulation should take approximately two and a half minutes"
+          "* Simulation should take approximately seven minutes"
         )
 
       ),
@@ -235,8 +235,12 @@ server <- function(input, output, session) {
     )
 
     wind_info$predmap_r <- {
+      require(doSNOW)
+      require(foreach)
 
-      showNotification("Running in parallel", type = "message")
+      cores = parallel::detectCores(logical = T)
+
+      showNotification(paste("Running in parallel using", cores[1] - 1, "threads"), type = "message")
       # Create a Progress object
       progress <- shiny::Progress$new(max = 10 * length(coords_r))
 
@@ -632,7 +636,12 @@ server <- function(input, output, session) {
       if(input$nforecast > 48 && dim(coords)[1] > 1)
       {
         parallel = T
-        showNotification("Running in parallel", type = "message")
+        require(doSNOW)
+        require(foreach)
+
+        cores = parallel::detectCores(logical = T)
+
+        showNotification(paste("Running in parallel using", min(cores[1] - 1, dim(coords)[1]), "threads"), type = "message")
         # Create a Progress object
         progress <- shiny::Progress$new(max = 10 * dim(coords)[1])
       } else {
