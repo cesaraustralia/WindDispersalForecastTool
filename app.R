@@ -57,7 +57,7 @@ tz_choices <- c(
 
 ui <- shinyUI(
   navbarPage(
-    "Wind Forecast Tool v0.5.1",
+    "Wind Forecast Tool v0.5.2",
     selected = "Rapid Prediction",
     theme = shinytheme("yeti"),
 
@@ -81,7 +81,7 @@ ui <- shinyUI(
         leafletOutput("map_r", height = 250),
 
         h6(
-          "* Simulation should take approximately seven minutes"
+          "* Simulation should take approximately eight minutes"
         )
 
       ),
@@ -235,14 +235,9 @@ server <- function(input, output, session) {
     )
 
     wind_info$predmap_r <- {
-      require(doSNOW)
-      require(foreach)
 
-      cores = parallel::detectCores(logical = T)
-
-      showNotification(paste("Running in parallel using", cores[1] - 1, "threads"), type = "message")
       # Create a Progress object
-      progress <- shiny::Progress$new(max = 10 * length(coords_r))
+      progress <- shiny::Progress$new(max = 10 * length(coords_r) * night_l)
 
       progress$set(message = "Simulating", value = 0)
       # Close the progress when this reactive exits (even if there's an error)
@@ -269,8 +264,7 @@ server <- function(input, output, session) {
         fdate = r_date,
         fhour =  sunset_utc,
         atm_level = "950mb",
-        updateProgress = updateProgress,
-        parallel = T
+        updateProgress = updateProgress
       )
     }
 
@@ -633,22 +627,8 @@ server <- function(input, output, session) {
     coords <- na.omit(selected_localities$coordinates)
 
     wind_info$predmap <- {
-      if(input$nforecast > 48 && dim(coords)[1] > 1)
-      {
-        parallel = T
-        require(doSNOW)
-        require(foreach)
-
-        cores = parallel::detectCores(logical = T)
-
-        showNotification(paste("Running in parallel using", min(cores[1] - 1, dim(coords)[1]), "threads"), type = "message")
-        # Create a Progress object
-        progress <- shiny::Progress$new(max = 10 * dim(coords)[1])
-      } else {
-        parallel = F
-        # Create a Progress object
-        progress <- shiny::Progress$new(max = 10 * input$nforecast * dim(coords)[1])
-      }
+      # Create a Progress object
+      progress <- shiny::Progress$new(max = 10 * input$nforecast * dim(coords)[1])
 
       progress$set(message = "Simulating", value = 0)
       # Close the progress when this reactive exits (even if there's an error)
@@ -676,8 +656,7 @@ server <- function(input, output, session) {
         fhour =  format(wind_info$selected_time_utc, "%H"),
         atm_level = "950mb",
         backwards = ifelse(input$direction == "Forward", F, T),
-        updateProgress = updateProgress,
-        parallel = parallel
+        updateProgress = updateProgress
       )
     }
 
