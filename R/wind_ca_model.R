@@ -73,10 +73,10 @@ wind_sim <- function(data_path = "wind-data",
     if(!is.numeric(ncores))
       ncores <- cores[1]-1 else
         if(ncores > cores[1])
-          stop("Number of cores must be equal to or less than available cores in system")
+          stop("Number of threads must be equal to or less than available threads in system")
 
     ncores = min(ncores, length(coords))
-    print(paste("Running in parallel using", ncores, "cores"))
+    print(paste("Running in parallel using", ncores, "threads"))
 
     cl <- makeCluster(ncores)
     registerDoSNOW(cl)
@@ -403,10 +403,10 @@ wind_sim_hist <- function(data_u = NULL,
     if(!is.numeric(ncores))
       ncores <- cores[1]-1 else
         if(ncores > cores[1])
-          stop("Number of cores must be equal to or less than available cores in system")
+          stop("Number of threads must be equal to or less than available threads in system")
 
     ncores = min(ncores, length(coords))
-    print(paste("Running in parallel using", ncores, "cores"))
+    print(paste("Running in parallel using", ncores, "threads"))
 
     cl <- makeCluster(ncores)
     registerDoSNOW(cl)
