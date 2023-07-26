@@ -57,52 +57,14 @@ tz_choices <- c(
 
 ui <- shinyUI(
   navbarPage(
-    "Wind Forecast Tool v0.5.2",
-    selected = "Rapid Prediction",
+    "Wind Forecast Tool v1.0.0",
+    selected = "Select location for rapid simulation",
     theme = shinytheme("yeti"),
 
     # Panel 1 -----------------------------------------------------------------
-    tabPanel(
-      "Rapid Prediction",
-
-      column(
-        width = 4,
-
-        h5("Select timezone:"),
-        selectInput(
-          "timezone_r",
-          "Timezone",
-          choices = tz_choices,
-          selected = "Australia/Melbourne"
-        ),
-
-        h5("Simulate overnight wind-assisted dispersal from the following localities:"),
-
-        leafletOutput("map_r", height = 250),
-
-        h6(
-          "* Simulation should take approximately eight minutes"
-        )
-
-      ),
-      column(
-        width = 8,
-
-        HTML("<br/>"),
-        actionButton("run_r", "Run forecast"),
-        HTML("<br/>"),
-
-        plotOutput("prediction_r", height = "500px") %>%
-          withSpinner(color = "#428bca")
-
-      )
-    )
-    ,
-
-    # Panel 2 -----------------------------------------------------------------
 
     tabPanel(
-      "Custom Simulation",
+      "Select location for rapid simulation",
 
       column(
         width = 4,
@@ -174,6 +136,45 @@ ui <- shinyUI(
         HTML("<br/>"),
 
         plotOutput("prediction", height = "500px") %>%
+          withSpinner(color = "#428bca")
+
+      )
+    )
+    ,
+
+    # Panel 2 -----------------------------------------------------------------
+
+    tabPanel(
+      "Multi-site Northern Prediction",
+
+      column(
+        width = 4,
+
+        h5("Select timezone:"),
+        selectInput(
+          "timezone_r",
+          "Timezone",
+          choices = tz_choices,
+          selected = "Australia/Melbourne"
+        ),
+
+        h5("Simulate overnight wind-assisted dispersal from the following localities:"),
+
+        leafletOutput("map_r", height = 250),
+
+        h6(
+          "* Simulation should take approximately eight minutes"
+        )
+
+      ),
+      column(
+        width = 8,
+
+        HTML("<br/>"),
+        actionButton("run_r", "Run forecast"),
+        HTML("<br/>"),
+
+        plotOutput("prediction_r", height = "500px") %>%
           withSpinner(color = "#428bca")
 
       )
