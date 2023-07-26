@@ -25,7 +25,7 @@ Meteorological forecast cycles in 6 hour intervals (UTC 00:00, 06:00, 12:00, 18:
 
 ### Using the forecasting tool
 
-To run a simulation, you need to select among several parameters:
+The default use of the tool is to perform a **Rapid simulation** based on user-defined input. You will be prompted to select among several parameters:
 
 ![](forecast_tool_direction.png)
 
@@ -33,19 +33,21 @@ To run a simulation, you need to select among several parameters:
 
 ![](forecast_tool_time.png)
 
-2. Forecast cycle: Select a timezone and date and time for your simulation. You can run simulations ranging up to a week prior to the current date.
+2. Select a timezone and date and time for your simulation. You can run simulations ranging up to a week prior to the current date.
 
 ![](forecast_tool_duration.png)
 
-3. Select the total flight duration of FAW, up to 24 hours.
+3. Select the total flight duration of FAW, up to 24 hours for forward simulation, up to 96 hours (four days) for backward simulation.
 
 ![](forecast_tool_locality.png)
 
-4. Locality: The location of moths present to predict their direction of travel (forwards) or their predicted origin (backwards). You can either input longitude and latitude manually (in decimal degrees), or click on the map to select a locality for the simulation.
+4. Locality: The location of moths present to predict their direction of travel (forwards) or their predicted origin (backwards). You can click on the map to select up to five localities for the simulation. Delete selected localities by pressing on the adjacent button.
 
-*Note that longer total run times and greater numbers of simulations will result in longer computation times, but simulations should still finish in under four minutes at the most. If more than five minutes have passed and no output has been created, please refresh and try again. If the error persists, contact Cesar Australia for support.*
+*Note that longer total run times and greater numbers of localities will result in longer computation times, up to three minutes for forwards simulations and up to 11 minutes for backwards simulations. If that time has passed and no output has been created, please refresh and try again. If the error persists, contact Cesar Australia for support.*
 
 After you have selected all of your starting conditions, press the **Run forecast** button. After a short wait the results of your simulation will show up on the right, with cells coloured based on the frequency of simulated trajectories passing through them.
+
+Alternatively, you can switch to the **Multi-site Northern Prediction** tab to simulate overnight dispersal from localities where there is a year-round risk of FAW. Select your timezone of choice, and press the **Run forecast** button to generate a map of where FAW may have dispersed to overnight. This should take roughly eight minutes to produce.
 
 <br>
 

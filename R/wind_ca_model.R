@@ -372,6 +372,7 @@ wind_sim_hist <- function(data_u = NULL,
                           fhour = "18", # the forecast hour
                           cellsize = 25000,
                           full = F, # if TRUE, generate a dataframe of endpoints per time step
+                          backwards = F, # if FALSE (default) run forwards simulation from starting point. Else backwards from end point
                           parallel = F, # if TRUE run in parallel
                           ncores = F){ # if FALSE (default) use max number of cores - 1. Else set to number of cores to use
 
@@ -380,15 +381,29 @@ wind_sim_hist <- function(data_u = NULL,
 
   r <- data_u[[1]]
 
-  fhour_utc = ifelse(as.numeric(fhour) %in% c(0:5), "00",
-                     ifelse(as.numeric(fhour) %in% c(6:11), "06",
-                            ifelse(as.numeric(fhour) %in% c(12:17), "12",
-                                   ifelse(as.numeric(fhour) %in% c(18:23), "18",
-                                          NA))))
-  if(is.na(fhour_utc))
-    stop("fhour should be between 0-23")
+  # define the interval
+  interval <- c("00", "06", "12", "18")
 
-  f_offset = as.numeric(fhour) - as.numeric(fhour_utc)
+  if(backwards){
+    # update date and time based on length of hindcast
+    fdate = as.character(format(as.POSIXct(lubridate::ymd_h(paste(fdate, fhour)) - lubridate::hours(as.numeric(nforecast)),format='%m/%d/%Y %H:%M:%S'),format='%Y%m%d'))
+
+    fhour = as.character(lubridate::hour(lubridate::hours(as.numeric(fhour)) - lubridate::hours(nforecast)) %% 24)
+  }
+
+  # find closest interval
+  diffs <- as.numeric(fhour) - as.numeric(interval)
+
+  diffs[which(diffs < 0)] <- NA
+
+  # calculate the index of the closest interval
+  index <- which.min(diffs)
+
+  # calculate the difference
+  difference <- as.numeric(fhour) - as.numeric(interval[index])
+
+  # get the corresponding interval
+  fhour <- interval[index]
 
   if(parallel){
     require(doSNOW)
@@ -454,7 +469,7 @@ wind_sim_hist <- function(data_u = NULL,
           x <- points[n, 1]
           y <- points[n, 2]
 
-          start_layer <- which(names(data_u) == paste0(fdate, fhour_utc))
+          start_layer <- which(names(data_u) == paste0(fdate, fhour))
 
           u <- data_u[[start_layer + floor(f_new/6)]]
           v <- data_v[[start_layer + floor(f_new/6)]]
@@ -558,14 +573,17 @@ wind_sim_hist <- function(data_u = NULL,
 
         n <- 1
 
-        for(f in seq_len(nforecast)){
+        forecast_hours <- seq_len(nforecast)
+        if(backwards) forecast_hours <- rev(forecast_hours)
 
-          f_new <- f + f_offset
+        for(f in forecast_hours){
+
+          f_new <- f + difference
 
           x <- points[n, 1]
           y <- points[n, 2]
 
-          start_layer <- which(names(data_u) == paste0(fdate, fhour_utc))
+          start_layer <- which(names(data_u) == paste0(fdate, interval[index]))
 
           u <- data_u[[start_layer + floor(f_new/6)]]
           v <- data_v[[start_layer + floor(f_new/6)]]
@@ -573,6 +591,9 @@ wind_sim_hist <- function(data_u = NULL,
           # calculate wind speed and direction
           speed <- wind_speed(u = u, v = v)
           direction <- wind_direction(u = u, v = v)
+
+          if(backwards)
+            direction <- (direction + 180) %% 360
 
           speed_ctr <- speed[y, x][1,1]
 
