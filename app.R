@@ -11,34 +11,195 @@ library(sf)
 library(photobiology)
 
 
-# read the wind functions
-source("R/wind_scr.R")
-source("R/wind_ca_model.R")
+# settings ----------------------------------------------------------------------
 
-# gdal option to allow terra read raster files with http links
-# without this terra can't read files with http from S3 bucket API
-# setGDALconfig("GDAL_HTTP_UNSAFESSL", "YES")
+APP_VERSION <- "v1.1.0"
+NSIM <- 100                          # replicates per start location
+WIND_DIR <- "wind-data"
+ATM_LEVEL <- "950mb"
+MAX_POINTS <- 5                      # max start locations on the custom-simulation tab
+EXIT_WARN_FRACTION <- 0.10           # warn when more than this share of replicates leave the model area
+LATEST_TZ <- "Australia/Brisbane"    # forecasts are available from about 08:00 Brisbane time
+MODEL_VERSION <- "fixed-v1"          # bump to invalidate the cached multi-site forecasts
+
+# the multi-site forecast is identical for every user on a given day, so it is cached here
+# (shared by all R processes in the container; set WIND_CACHE_DIR to use another folder)
+CACHE_DIR <- Sys.getenv("WIND_CACHE_DIR",
+                        unset = file.path(dirname(tempdir()), "wind-forecast-cache"))
+CACHE_MAX_AGE_DAYS <- 3
+
+
+# wind model --------------------------------------------------------------------
+# Shiny loads everything in R/ automatically; these lines only make sure the functions exist.
+# R/wind_scr.R and R/wind_ca_model.R (the original model) are no longer used by the app.
+if (!exists("wind_sim_cpp", mode = "function")) source("R/wind_ca_model_cpp.R")
+if (!exists("wind_sim_r_fixed", mode = "function")) source("R/wind_ca_fixed_r.R")
+
+# The "fixed" model is run in C++ when a compiler is available. If compiling fails the app falls
+# back to the pure-R implementation of the same model (a little slower, same results).
+WIND_ENGINE <- tryCatch({
+  if (!requireNamespace("Rcpp", quietly = TRUE)) stop("package Rcpp is not installed")
+  Rcpp::sourceCpp("R/wind_ca.cpp", env = globalenv())
+  "cpp"
+}, error = function(e) {
+  message("[wind model] C++ model unavailable (",
+          substr(gsub("\\s+", " ", conditionMessage(e)), 1, 300),
+          ") - using the pure-R implementation of the same model.")
+  "r"
+})
+message("[wind model] engine: ", WIND_ENGINE)
+
+run_wind_model <- function(coords, nforecast, fdate, fhour, backwards, updateProgress, run_info) {
+  args <- list(
+    data_path = WIND_DIR,
+    coords = coords,
+    nforecast = nforecast,
+    nsim = NSIM,
+    fdate = fdate,
+    fhour = fhour,
+    atm_level = ATM_LEVEL,
+    backwards = backwards,
+    updateProgress = updateProgress,
+    run_info = run_info
+  )
+  if (WIND_ENGINE == "cpp") {
+    do.call(wind_sim_cpp, c(args, list(mode = "fixed")))
+  } else {
+    do.call(wind_sim_r_fixed, args)
+  }
+}
+
+# runs the model with a progress bar; returns the raster and the model's run information
+simulate_with_progress <- function(coords, nforecast, fdate, fhour, backwards) {
+  # Create a Progress object
+  progress <- shiny::Progress$new(max = NSIM * nforecast * length(coords))
+
+  progress$set(message = "Simulating", value = 0)
+  # Close the progress when this function exits (even if there's an error)
+  on.exit(progress$close())
+
+  # Create a callback function to update progress.
+  # Each time this is called:
+  # - If `value` is NULL, it will move the progress bar 1/5 of the remaining
+  #   distance. If non-NULL, it will set the progress to that value.
+  # - It also accepts optional detail text.
+  updateProgress <- function(value = NULL) {
+    if (is.null(value)) {
+      value <- progress$getValue()
+      value <- value + (progress$getMax() - value) / 5
+    }
+    progress$set(value = value)
+  }
+
+  info <- new.env()
+  r <- run_wind_model(coords, nforecast, fdate, fhour, backwards, updateProgress, info)
+  list(raster = r, info = as.list(info))
+}
+
+# Which forecast folders does this run need that are not on the server (yet)?
+# Returns a character vector describing them (empty if everything is there).
+missing_forecasts <- function(fdate, fhour, nforecast, backwards) {
+  cyc <- .wca_resolve_cycle(fdate, fhour, nforecast, backwards)
+  dirs <- file.path(WIND_DIR, cyc$fdate, cyc$fhour)
+  if (nforecast > 48) {
+    dirs <- c(dirs, file.path(WIND_DIR, format(ymd(cyc$fdate) + 2, "%Y%m%d"), cyc$fhour))
+  }
+  has_data <- vapply(dirs, function(d) {
+    length(list.files(d, pattern = paste0("^gfs_ugrd_", ATM_LEVEL, "_"))) > 0
+  }, logical(1))
+  dirs <- dirs[!has_data]
+  vapply(dirs, function(d) {
+    p <- strsplit(d, "/")[[1]]
+    sprintf("%s %s:00 UTC", format(ymd(p[length(p) - 1]), "%d %b %Y"), p[length(p)])
+  }, character(1), USE.NAMES = FALSE)
+}
+
+# runs `fun`; on failure logs the error, tells the user, and returns NULL instead of ending the session
+run_safely <- function(fun) {
+  tryCatch(fun(), error = function(e) {
+    message("[wind app] simulation failed: ", conditionMessage(e))
+    showNotification(
+      tagList(
+        strong("The simulation could not be completed."),
+        br(),
+        "If you are running it close to the latest forecast time, the forecast may still be ",
+        "downloading - please try again in a few minutes.",
+        br(),
+        tags$small(conditionMessage(e))
+      ),
+      type = "error",
+      duration = 20
+    )
+    NULL
+  })
+}
+
+
+# cache for the multi-site forecast ---------------------------------------------------
+
+md5_of <- function(x) {
+  f <- tempfile()
+  on.exit(unlink(f))
+  writeLines(paste(deparse(x), collapse = "\n"), f)
+  unname(tools::md5sum(f))
+}
+
+CACHE_OK <- tryCatch({
+  dir.create(CACHE_DIR, recursive = TRUE, showWarnings = FALSE)
+  old <- list.files(CACHE_DIR, full.names = TRUE)
+  old <- old[difftime(Sys.time(), file.mtime(old), units = "days") > CACHE_MAX_AGE_DAYS]
+  unlink(old)
+  file.access(CACHE_DIR, 2) == 0
+}, error = function(e) FALSE)
+
+# the key changes whenever the model, its settings or the localities change
+CODE_HASH <- md5_of(unname(tools::md5sum(c("R/wind_ca.cpp", "R/wind_ca_model_cpp.R",
+                                           "R/wind_ca_fixed_r.R", "localities.csv"))))
+
+cache_file <- function(r_date, fhour, night_length) {
+  key <- md5_of(list(MODEL_VERSION, NSIM, ATM_LEVEL, r_date, fhour, as.numeric(night_length), CODE_HASH))
+  file.path(CACHE_DIR, sprintf("multisite_%s_%s.rds", r_date, substr(key, 1, 12)))
+}
+
+read_cache <- function(file) {
+  if (!CACHE_OK || !file.exists(file)) return(NULL)
+  tryCatch({
+    obj <- readRDS(file)
+    list(raster = terra::unwrap(obj$raster), info = obj$info)
+  }, error = function(e) NULL)
+}
+
+write_cache <- function(file, res) {
+  if (!CACHE_OK) return(invisible(FALSE))
+  tryCatch({
+    tmp <- tempfile(tmpdir = CACHE_DIR, fileext = ".tmp")
+    saveRDS(list(raster = terra::wrap(res$raster), info = res$info), tmp)
+    file.rename(tmp, file)   # atomic, so another session never reads a half-written file
+  }, error = function(e) invisible(FALSE))
+}
+
+
+# spatial data -------------------------------------------------------------------
 
 # read Australian border
 border <- st_read("SpatialData/borders.gpkg", quiet = TRUE) %>%
   sf::st_cast(to = "MULTILINESTRING")
 # add the bbox of the raster as the allowed region
 bound <- st_read("SpatialData/boundary.gpkg", quiet = TRUE)
+# outline of the model area, drawn on the result plots
+bound_outline <- sf::st_boundary(sf::st_transform(sf::st_geometry(bound), 4326))
 
-# returns true or false
+# returns true or false: is the point inside the model area?
 xy_in_aus <- function(long, lat) {
-  data.frame(x = long, y = lat) %>%
+  pts <- data.frame(x = long, y = lat) %>%
     sf::st_as_sf(coords = 1:2, crs = 4326) %>%
-    sf::st_transform(crs = sf::st_crs(bound)) %>%
-    sf::st_intersection(sf::st_geometry(bound)) %>%
-    nrow() != 0
+    sf::st_transform(crs = sf::st_crs(bound))
+  any(lengths(sf::st_intersects(pts, sf::st_geometry(bound))) > 0)
 }
 
 # load localities for rapid prediction
 localities <- as.data.frame(read_csv("localities.csv"))
-
-# base url for Cesar S3 API for wind data
-# apiurl <- "https://gwtiioyhfg.execute-api.ap-southeast-2.amazonaws.com/api/cesar-storage/wind-data"
+loc_xy <- data.frame(long = as.numeric(localities[, 2]), lat = as.numeric(localities[, 3]))
 
 # Define options for timezone dropdown menu
 tz_choices <- c(
@@ -55,13 +216,183 @@ tz_choices <- c(
   "Australia/Sydney"
 )
 
+
+# helpers ------------------------------------------------------------------------
+
+# the latest start time for which forecasts are available (08:00 Brisbane time today), in `tz`
+latest_start <- function(tz) {
+  today_bne <- lubridate::today(tzone = LATEST_TZ)
+  lubridate::with_tz(
+    lubridate::ymd_hms(paste0(format(today_bne, "%Y-%m-%d"), " ", "08:00:00"), tz = LATEST_TZ),
+    tz
+  )
+}
+
+# start times offered for `date` in timezone `tz` (whole UTC hours, shown in local time)
+time_choices_for <- function(date, tz) {
+  # original choices
+  original_choices <-
+    lubridate::with_tz(lubridate::ymd_hms(paste0(
+      format(date, "%Y-%m-%d"),
+      " ",
+      sprintf("%s:00:00", seq(0, 23))
+    ),
+    tz = "Australia/Melbourne"),
+    tz = tz)
+
+  original_choices <- lubridate::ymd_hms(paste0(
+    format(date, "%Y-%m-%d"),
+    " ",
+    format(original_choices, "%H:%M:%S")
+  ),
+  tz = tz)
+
+  # filter original choices by the latest available start time
+  filtered_choices <- sort(original_choices[original_choices <= latest_start(tz)])
+
+  format(filtered_choices, "%H:%M")
+}
+
+# map extent used for a set of start locations
+plot_extent <- function(pts) {
+  c(
+    floor(min(pts$long, na.rm = TRUE)) - 18,
+    floor(max(pts$long, na.rm = TRUE)) + 18,
+    floor(min(pts$lat, na.rm = TRUE)) - 15,
+    floor(max(pts$lat, na.rm = TRUE)) + 15
+  )
+}
+
+# warning shown above the map when many replicates left the model area
+exit_notice <- function(info) {
+  if (is.null(info) || is.null(info$n_replicates) || info$n_replicates == 0) return(NULL)
+  frac <- info$n_exited / info$n_replicates
+  if (frac <= EXIT_WARN_FRACTION) return(NULL)
+  div(
+    class = "alert alert-warning",
+    style = "margin-top: 10px;",
+    strong("Warning: "),
+    sprintf(
+      paste0("%.0f%% of the simulated trajectories left the model area (dashed outline) and could ",
+             "not be followed further, so the pattern is cut off at its edge. ",
+             "Treat the map near the edge with caution."),
+      100 * frac
+    )
+  )
+}
+
+# result map (used by both tabs)
+make_prediction_plot <- function(r, pts, title) {
+  xt <- plot_extent(pts)
+
+  r_crop <- terra::crop(r, xt)
+  r_crop <- r_crop / global(r_crop, max, na.rm = TRUE)[1, 1] * 100
+
+  # the part of the model-area outline that falls inside the map (may be none)
+  outline <- tryCatch(suppressWarnings(st_crop(bound_outline, ext(xt))),
+                      error = function(e) NULL)
+
+  p <- gplot(r_crop, maxpixels = 500000) +
+    geom_tile(aes(fill = value), alpha = 0.8) +
+    viridis::scale_fill_viridis(option = "D",
+                                direction = -1,
+                                na.value = NA) +
+    geom_point(
+      data = pts,
+      aes(x = long, y = lat),
+      inherit.aes = FALSE,
+      col = "red",
+      alpha = 0.8,
+      shape = "\u2605",
+      size = 7
+    ) +
+    geom_sf(
+      data = st_crop(border, ext(xt)),
+      inherit.aes = FALSE,
+      fill = NA
+    )
+
+  if (!is.null(outline) && length(outline) > 0) {
+    p <- p + geom_sf(
+      data = outline,
+      inherit.aes = FALSE,
+      colour = "#d9534f",
+      linetype = "dashed",
+      linewidth = 0.8,
+      fill = NA
+    )
+  }
+
+  p +
+    coord_sf(crs = 4326) +
+    theme_minimal() +
+    theme(
+      plot.title = element_text(size = 14),
+      plot.caption = element_text(size = 11, hjust = 0),
+      plot.caption.position = "plot",
+      axis.text = element_text(size = 14),
+      axis.title = element_text(size = 15),
+      legend.text = element_text(size = 13),
+      legend.title = element_text(size = 13),
+      axis.title.x = element_text(margin = margin(
+        t = 15,
+        r = 0,
+        b = 0,
+        l = 0
+      )),
+      axis.title.y = element_text(margin = margin(
+        t = 0,
+        r = 15,
+        b = 0,
+        l = 0
+      ))
+    ) +
+    labs(x = "Longitude",
+         y = "Latitude",
+         fill = "Frequency",
+         caption = "Dashed red line: edge of the model area.\nTrajectories that leave it are not followed.") +
+    ggtitle(title)
+}
+
+# base map for both tabs, with the model area outlined
+base_map <- function() {
+  leaflet(bound) %>%
+    setView(lng = 135.51,
+            lat = -25.98,
+            zoom = 3) %>%
+    addTiles() %>%
+    addPolygons(fillOpacity = 0, color = "#d9534f", weight = 2, dashArray = "6 4") %>%
+    addControl(html = "<small>Dashed outline: model area</small>", position = "bottomleft")
+}
+
+# one row of the coordinate list on the custom-simulation tab
+coord_rows <- lapply(seq_len(MAX_POINTS), function(i) {
+  fluidRow(
+    column(4, textOutput(paste0("coord", 2 * i - 1))),
+    column(4, textOutput(paste0("coord", 2 * i))),
+    column(4, actionButton(paste0("delete", i), "Delete"))
+  )
+})
+
+model_note <- h6(
+  sprintf(
+    paste0("Model update (%s): particles now travel the full distance carried by the wind ",
+           "(previously capped at roughly one grid cell, about 25 km, per hour), ",
+           "so maps are not directly comparable with those from earlier versions."),
+    APP_VERSION
+  )
+)
+
+
+# ui ------------------------------------------------------------------------------
+
 ui <- shinyUI(
   navbarPage(
-    "Wind Forecast Tool v1.0.0",
+    paste("Wind Forecast Tool", APP_VERSION),
     selected = "Select location for rapid simulation",
     theme = shinytheme("yeti"),
 
-    # Panel 1 -----------------------------------------------------------------
+    # Tab 1: custom simulation --------------------------------------------------
 
     tabPanel(
       "Select location for rapid simulation",
@@ -94,38 +425,16 @@ ui <- shinyUI(
 
         uiOutput("duration_slider"),
 
-        fluidRow(
-          column(4, textOutput("coord1")),
-          column(4, textOutput("coord2")),
-          column(4, actionButton("delete1", "Delete"))
-        ),
-        fluidRow(
-          column(4, textOutput("coord3")),
-          column(4, textOutput("coord4")),
-          column(4, actionButton("delete2", "Delete"))
-        ),
-        fluidRow(
-          column(4, textOutput("coord5")),
-          column(4, textOutput("coord6")),
-          column(4, actionButton("delete3", "Delete"))
-        ),
-        fluidRow(
-          column(4, textOutput("coord7")),
-          column(4, textOutput("coord8")),
-          column(4, actionButton("delete4", "Delete"))
-        ),
-        fluidRow(
-          column(4, textOutput("coord9")),
-          column(4, textOutput("coord10")),
-          column(4, actionButton("delete5", "Delete"))
-        ),
+        coord_rows,
 
         # add a leaflet map
         leafletOutput("smap", height = 250),
 
         h6(
           "* If your simulation fails around this time, try again in a few minutes - the forecasts may not have finished downloading yet."
-        )
+        ),
+
+        model_note
 
       ),
       column(
@@ -135,6 +444,8 @@ ui <- shinyUI(
         actionButton("run", "Run forecast"),
         HTML("<br/>"),
 
+        uiOutput("prediction_notice"),
+
         plotOutput("prediction", height = "500px") %>%
           withSpinner(color = "#428bca")
 
@@ -142,7 +453,7 @@ ui <- shinyUI(
     )
     ,
 
-    # Panel 2 -----------------------------------------------------------------
+    # Tab 2: multi-site northern prediction -----------------------------------------
 
     tabPanel(
       "Multi-site Northern Prediction",
@@ -163,8 +474,10 @@ ui <- shinyUI(
         leafletOutput("map_r", height = 250),
 
         h6(
-          "* Simulation should take approximately eight minutes"
-        )
+          "* The forecast is calculated once per day and shared, so the first run of the day may take a little longer than later ones."
+        ),
+
+        model_note
 
       ),
       column(
@@ -173,6 +486,8 @@ ui <- shinyUI(
         HTML("<br/>"),
         actionButton("run_r", "Run forecast"),
         HTML("<br/>"),
+
+        uiOutput("prediction_r_notice"),
 
         plotOutput("prediction_r", height = "500px") %>%
           withSpinner(color = "#428bca")
@@ -186,480 +501,306 @@ ui <- shinyUI(
 
 server <- function(input, output, session) {
   # general
-  wind_info <- reactiveValues()
-  wind_info$predmap <- NULL
-  wind_info$predmap_r <- NULL
-  wind_info$selected_time <- NULL
-  wind_info$selected_time_utc <- NULL
+  wind_info <- reactiveValues(
+    predmap = NULL,
+    coords = NULL,
+    title_text = NULL,
+    exit = NULL,
+    predmap_r = NULL,
+    title_text_r = NULL,
+    exit_r = NULL
+  )
 
-  # Panel 1: rapid prediction
+  # Tab 2: multi-site northern prediction ------------------------------------------
 
   # create small map
   output$map_r <- renderLeaflet({
     isolate({
-      leaflet(bound) %>%
-        setView(lng = 135.51,
-                lat = -25.98,
-                zoom = 3) %>%
-        addTiles() %>%
-        addPolygons(fillOpacity = 0) %>%
-        addMarkers(lng = as.numeric(localities[,2]), lat = as.numeric(localities[,3]), label = as.character(localities[,1]))
+      base_map() %>%
+        addMarkers(lng = loc_xy$long, lat = loc_xy$lat, label = as.character(localities[, 1]))
     })
   })
 
   # run the simulation
   observeEvent(input$run_r, {
-    coords_r <- lapply(1:nrow(localities), function(x) as.numeric(localities[x, 2:3]))
+    tz <- input$timezone_r
+    yesterday <- today(tz) - 1
+    geo <- data.frame(lon = 136.52561, lat = -16.12613)
 
     sunset_utc <- sunset_time(
-      date = today(input$timezone_r) - 1,
+      date = yesterday,
       tz = "UTC",
-      geocode = data.frame(lon = 136.52561, lat = -16.12613)
+      geocode = geo
     )
 
     r_date <- format(sunset_utc, "%Y%m%d")
 
     sunset_selected <- sprintf("%02d", hour(round_date(sunset_time(
-      date = today(input$timezone_r) - 1,
-      tz = input$timezone_r,
-      geocode = data.frame(lon = 136.52561, lat = -16.12613)
+      date = yesterday,
+      tz = tz,
+      geocode = geo
     ), "hour")))
     sunset_utc <- sprintf("%02d", hour(round_date(sunset_utc, "hour")))
 
     night_l <- round(
       night_length(
-        date = today(input$timezone_r) - 1,
+        date = yesterday,
         tz = "UTC",
-        geocode = data.frame(lon = 136.52561, lat = -16.12613)
+        geocode = geo
       ),
       0
     )
 
-    wind_info$predmap_r <- {
+    # the same forecast is shared by every user on a given day
+    file <- cache_file(r_date, sunset_utc, night_l)
+    res <- read_cache(file)
 
-      # Create a Progress object
-      progress <- shiny::Progress$new(max = 10 * length(coords_r) * night_l)
-
-      progress$set(message = "Simulating", value = 0)
-      # Close the progress when this reactive exits (even if there's an error)
-      on.exit(progress$close())
-
-      # Create a callback function to update progress.
-      # Each time this is called:
-      # - If `value` is NULL, it will move the progress bar 1/5 of the remaining
-      #   distance. If non-NULL, it will set the progress to that value.
-      # - It also accepts optional detail text.
-      updateProgress <- function(value = NULL) {
-        if (is.null(value)) {
-          value <- progress$getValue()
-          value <- value + (progress$getMax() - value) / 5
-        }
-        progress$set(value = value)
+    if (is.null(res)) {
+      missing <- missing_forecasts(r_date, sunset_utc, as.numeric(night_l), FALSE)
+      if (length(missing) > 0) {
+        showNotification(
+          paste0("The wind forecast needed for this simulation is not on the server yet (",
+                 paste(missing, collapse = ", "),
+                 "). It may still be downloading - please try again in a few minutes."),
+          type = "error",
+          duration = 20
+        )
+        return()
       }
 
-      wind_sim(
-        data_path = "wind-data",
-        coords = coords_r,
-        nforecast = night_l,
-        nsim = 10,
-        fdate = r_date,
-        fhour =  sunset_utc,
-        atm_level = "950mb",
-        updateProgress = updateProgress
-      )
+      res <- run_safely(function() {
+        simulate_with_progress(
+          coords = lapply(seq_len(nrow(localities)), function(x) as.numeric(localities[x, 2:3])),
+          nforecast = as.numeric(night_l),
+          fdate = r_date,
+          fhour = sunset_utc,
+          backwards = FALSE
+        )
+      })
+      if (is.null(res)) return()
+
+      write_cache(file, res)
     }
+
+    wind_info$predmap_r <- res$raster
+    wind_info$exit_r <- res$info
 
     wind_info$title_text_r <-
       sprintf(
         "Forecast initiated at %s %s %s | Duration: %s hours",
-        as.character(today(input$timezone_r) - 1),
+        as.character(yesterday),
         as.character(sunset_selected),
-        as.character(input$timezone_r),
+        as.character(tz),
         as.character(night_l)
       )
 
   })
 
+  output$prediction_r_notice <- renderUI({
+    req(wind_info$predmap_r)
+    exit_notice(wind_info$exit_r)
+  })
+
   output$prediction_r <- renderPlot({
-    # plot(generate_plot())
-
-    req(input$run_r)
-
-    # make plot only react to the run button
-    isolate({
-      xt <- c(
-        floor(min(as.numeric(localities[,2]), na.rm = T)) - 18,
-        floor(max(as.numeric(localities[,2]), na.rm = T)) + 18,
-        floor(min(as.numeric(localities[,3]), na.rm = T)) - 15,
-        floor(max(as.numeric(localities[,3]), na.rm = T)) + 15
-      )
-
-      pt <-
-        data.frame(long = as.numeric(localities[,2]), lat = as.numeric(localities[,3]))
-
-      if (!is.null(wind_info$predmap_r)) {
-        r_crop <- terra::crop(wind_info$predmap_r, xt)
-        r_crop <-
-          r_crop / global(r_crop, max, na.rm = TRUE)[1, 1] * 100
-
-        gplot(r_crop, maxpixels = 500000) +
-          geom_tile(aes(fill = value), alpha = 0.8) +
-          viridis::scale_fill_viridis(option = "D",
-                                      direction = -1,
-                                      na.value = NA) +
-          geom_point(
-            data = pt,
-            aes(x = long, y = lat),
-            inherit.aes = FALSE,
-            col = "red",
-            alpha = 0.8,
-            shape = "\u2605",
-            size = 7
-          ) +
-          geom_sf(
-            data = st_crop(border, ext(xt)),
-            inherit.aes = FALSE,
-            fill = NA
-          ) +
-          coord_sf(crs = 4326) +
-          theme_minimal() +
-          theme(
-            plot.title = element_text(size = 14),
-            axis.text = element_text(size = 14),
-            axis.title = element_text(size = 15),
-            legend.text = element_text(size = 13),
-            legend.title = element_text(size = 13),
-            axis.title.x = element_text(margin = margin(
-              t = 15,
-              r = 0,
-              b = 0,
-              l = 0
-            )),
-            axis.title.y = element_text(margin = margin(
-              t = 0,
-              r = 15,
-              b = 0,
-              l = 0
-            ))
-          ) +
-          labs(x = "Longitude",
-               y = "Latitude",
-               fill = "Frequency") +
-          ggtitle(wind_info$title_text_r)
-      }
-
-    })
-
+    req(wind_info$predmap_r)
+    make_prediction_plot(wind_info$predmap_r, loc_xy, wind_info$title_text_r)
   })
 
 
-  # Panel 2: custom simulation
-  output$warning_text <- renderUI({
-    tz <- input$timezone
+  # Tab 1: custom simulation --------------------------------------------------------
 
-    end_time <- lubridate::with_tz(lubridate::ymd_hms(paste0(format(lubridate::today(), "%Y-%m-%d"), " ", "08:00:00"), tz = "Australia/Brisbane"), tz)
-    h5(class = "warning-message", sprintf("Latest available starting time is %s*.", end_time))
+  output$warning_text <- renderUI({
+    req(input$timezone)
+    end_time <- latest_start(input$timezone)
+    h5(class = "warning-message",
+       sprintf("Latest available starting time is %s*.", format(end_time, "%Y-%m-%d %H:%M:%S")))
   })
 
   output$forec_date <- renderUI({
+    req(input$timezone)
     tz <- input$timezone
+    today_tz <- lubridate::today(tzone = tz)
+
+    # keep the date the user already chose, if it is still allowed
+    keep <- isolate(input$forec_date)
+    value <- if (!is.null(keep) && length(keep) == 1 && !is.na(keep) &&
+                 keep >= today_tz - 7 && keep <= today_tz) keep else today_tz
 
     dateInput(
       "forec_date",
       label = "Date",
-      value = lubridate::today(tzone = tz),
-      min = lubridate::today(tzone = tz) - lubridate::days(7),
-      max = lubridate::today(tzone = tz)
+      value = value,
+      min = today_tz - lubridate::days(7),
+      max = today_tz
     )
   })
 
-  observeEvent(input$direction, {
-    direction <- input$direction
+  output$duration_slider <- renderUI({
+    req(input$direction)
+    max_hours <- if (input$direction == "Forward") 24 else 96
 
-    if(direction == "Forward"){
-      output$duration_slider <- renderUI({
-        sliderTextInput(
-          inputId = "nforecast",
-          label = "Total run time (hours)",
-          choices = seq(1, 24, 1),
-          selected = 12,
-          grid = TRUE
-        )
-      })
-    }
+    # keep the run time the user already chose, if it is still allowed
+    keep <- isolate(input$nforecast)
+    selected <- if (!is.null(keep) && length(keep) == 1 && keep %in% seq_len(max_hours)) keep else 12
 
-    if(direction == "Backward"){
-      output$duration_slider <- renderUI({
-        sliderTextInput(
-          inputId = "nforecast",
-          label = "Total run time (hours)",
-          choices = seq(1, 96, 1),
-          selected = 12,
-          grid = TRUE
-        )
-      })
-    }
+    sliderTextInput(
+      inputId = "nforecast",
+      label = "Total run time (hours)",
+      choices = seq(1, max_hours, 1),
+      selected = selected,
+      grid = TRUE
+    )
   })
 
-  observeEvent(c(input$forec_date, input$timezone), {
-    tz <- input$timezone
+  output$forec_time <- renderUI({
+    req(input$forec_date, input$timezone)
+    time_choices <- time_choices_for(input$forec_date, input$timezone)
 
-    # original choices
-    original_choices <-
-      lubridate::with_tz(lubridate::ymd_hms(paste0(
-        format(input$forec_date, "%Y-%m-%d"),
-        " ",
-        sprintf("%s:00:00", seq(0, 23))
-      ),
-      tz = "Australia/Melbourne"),
-      tz = tz)
+    if (length(time_choices) == 0) {
+      return(helpText("No forecast start times are available yet for this date."))
+    }
 
-    original_choices <- lubridate::ymd_hms(paste0(
-      format(input$forec_date, "%Y-%m-%d"),
-      " ",
-      format(original_choices, "%H:%M:%S")
-    ),
-    tz = tz)
+    keep <- isolate(input$forec_time)
 
-    # filter original choices by selected timezone
-    filtered_choices <-
-      sort(original_choices[
-        original_choices <= with_tz(lubridate::ymd_hms(paste0(format(lubridate::today(), "%Y-%m-%d"), " ", "08:00:00"), tz = "Australia/Brisbane"), tz)
-      ])
-
-    # Adjust time choices based on selected date
-    time_choices <- format(filtered_choices, "%H:%M")
-
-    output$forec_time <- renderUI({
-      selectizeInput(
-        inputId = "forec_time",
-        label = "Time",
-        choices = time_choices,
-        options = list(dropdownParent = 'body', create = 0),
-        selected = min(time_choices)
-      )
-    })
+    selectizeInput(
+      inputId = "forec_time",
+      label = "Time",
+      choices = time_choices,
+      options = list(dropdownParent = 'body', create = 0),
+      selected = if (!is.null(keep) && keep %in% time_choices) keep else min(time_choices)
+    )
   })
 
-  observeEvent(c(input$forec_date, input$forec_time), {
-    tz <- input$timezone
+  selected_time_utc <- reactive({
+    req(input$forec_date, input$forec_time, input$timezone)
     selected_time <-
       lubridate::ymd_hms(paste0(
         format(input$forec_date, "%Y-%m-%d"),
         " ",
         hour(hm(input$forec_time)),
         ":00:00"
-      ), tz = tz)
-    wind_info$selected_time_utc <-
-      lubridate::with_tz(selected_time, "UTC")
+      ), tz = input$timezone)
+    lubridate::with_tz(selected_time, "UTC")
   })
 
   selected_localities <- reactiveValues(
     coordinates = matrix(
-      c(145, -37.8, NA, NA, NA, NA, NA, NA, NA, NA),
-      nrow = 5,
+      c(145, -37.8, rep(NA_real_, 2 * MAX_POINTS - 2)),
+      nrow = MAX_POINTS,
       ncol = 2,
       byrow = TRUE
-    ),
-    count = 1
+    )
   )
+
+  # number of locations currently selected
+  n_selected <- reactive(sum(!is.na(selected_localities$coordinates[, 1])))
 
   # add the small map
   output$smap <- renderLeaflet({
     isolate({
-      leaflet(bound) %>%
-        setView(lng = 135.51,
-                lat = -25.98,
-                zoom = 3) %>%
-        addTiles() %>%
-        addPolygons(fillOpacity = 0) %>%
-        addMarkers(lng = na.omit(selected_localities$coordinates[, 1]), lat = na.omit(selected_localities$coordinates[, 2]))
+      pts <- selected_localities$coordinates
+      pts <- pts[!is.na(pts[, 1]), , drop = FALSE]
+      base_map() %>%
+        addMarkers(lng = pts[, 1], lat = pts[, 2])
     })
   })
 
   observeEvent(input$smap_click, {
-    if (selected_localities$count < 5) {
-      selected_localities$count <- selected_localities$count + 1
-      empty_rows <- which(is.na(selected_localities$coordinates[, 1]))
-      first_empty_row <- empty_rows[1]
-      selected_localities$coordinates[first_empty_row, 1] <- input$smap_click$lng
-      selected_localities$coordinates[first_empty_row, 2] <- input$smap_click$lat
-      updateNumericInput(session, paste0("x", first_empty_row), value = round(input$smap_click$lng, 3))
-      updateNumericInput(session, paste0("y", first_empty_row), value = round(input$smap_click$lat, 3))
-    } else {
+    click <- input$smap_click
+    lng <- ((click$lng + 180) %% 360) - 180   # the map repeats east-west; bring the click back to -180..180
+
+    if (n_selected() >= MAX_POINTS) {
       showNotification("Maximum no. of localities reached", type = "error")
+    } else if (!xy_in_aus(lng, click$lat)) {
+      showNotification(
+        "That location is outside the model area (dashed outline). Please click inside it.",
+        type = "error"
+      )
+    } else {
+      first_empty_row <- which(is.na(selected_localities$coordinates[, 1]))[1]
+      selected_localities$coordinates[first_empty_row, 1] <- lng
+      selected_localities$coordinates[first_empty_row, 2] <- click$lat
     }
   })
 
   observe({
+    pts <- selected_localities$coordinates
+    pts <- pts[!is.na(pts[, 1]), , drop = FALSE]
     leafletProxy("smap") %>%
       clearMarkers() %>%
-      addMarkers(lng = na.omit(selected_localities$coordinates[, 1]), lat = na.omit(selected_localities$coordinates[, 2]))
+      addMarkers(lng = pts[, 1], lat = pts[, 2])
   })
 
-  # delete buttons
-  observeEvent(input$delete1, {
-    selected_localities$count <- selected_localities$count - 1
-    selected_localities$coordinates[1, ] <- NA
-    updateNumericInput(session, "x1", value = NA)
-    updateNumericInput(session, "y1", value = NA)
-    leafletProxy("smap") %>%
-      clearMarkers()
-  })
+  # delete buttons and coordinate read-outs
+  lapply(seq_len(MAX_POINTS), function(i) {
+    observeEvent(input[[paste0("delete", i)]], {
+      selected_localities$coordinates[i, ] <- NA_real_
+    }, ignoreInit = TRUE)
 
-  observeEvent(input$delete2, {
-    selected_localities$count <- selected_localities$count - 1
-    selected_localities$coordinates[2, ] <- NA
-    updateNumericInput(session, "x2", value = NA)
-    updateNumericInput(session, "y2", value = NA)
-    leafletProxy("smap") %>%
-      clearMarkers()
-  })
+    output[[paste0("coord", 2 * i - 1)]] <- renderText({
+      if (!is.na(selected_localities$coordinates[i, 1])) {
+        paste("Longitude:", round(selected_localities$coordinates[i, 1], 3))
+      } else {
+        ""
+      }
+    })
 
-  observeEvent(input$delete3, {
-    selected_localities$count <- selected_localities$count - 1
-    selected_localities$coordinates[3, ] <- NA
-    updateNumericInput(session, "x3", value = NA)
-    updateNumericInput(session, "y3", value = NA)
-    leafletProxy("smap") %>%
-      clearMarkers()
-  })
-
-  observeEvent(input$delete4, {
-    selected_localities$count <- selected_localities$count - 1
-    selected_localities$coordinates[4, ] <- NA
-    updateNumericInput(session, "x4", value = NA)
-    updateNumericInput(session, "y4", value = NA)
-    leafletProxy("smap") %>%
-      clearMarkers()
-  })
-
-  observeEvent(input$delete5, {
-    selected_localities$count <- selected_localities$count - 1
-    selected_localities$coordinates[5, ] <- NA
-    updateNumericInput(session, "x5", value = NA)
-    updateNumericInput(session, "y5", value = NA)
-    leafletProxy("smap") %>%
-      clearMarkers()
-  })
-
-  output$coord1 <- renderText({
-    if (!is.na(selected_localities$coordinates[1, 1])) {
-      paste("Longitude:", round(selected_localities$coordinates[1, 1],3))
-    } else {
-      ""
-    }
-  })
-
-  output$coord2 <- renderText({
-    if (!is.na(selected_localities$coordinates[1, 2])) {
-      paste("Latitude:", round(selected_localities$coordinates[1, 2],3))
-    } else {
-      ""
-    }
-  })
-
-  output$coord3 <- renderText({
-    if (!is.na(selected_localities$coordinates[2, 1])) {
-      paste("Longitude:", round(selected_localities$coordinates[2, 1],3))
-    } else {
-      ""
-    }
-  })
-
-  output$coord4 <- renderText({
-    if (!is.na(selected_localities$coordinates[2, 2])) {
-      paste("Latitude:", round(selected_localities$coordinates[2, 2],3))
-    } else {
-      ""
-    }
-  })
-
-  output$coord5 <- renderText({
-    if (!is.na(selected_localities$coordinates[3, 1])) {
-      paste("Longitude:", round(selected_localities$coordinates[3, 1],3))
-    } else {
-      ""
-    }
-  })
-
-  output$coord6 <- renderText({
-    if (!is.na(selected_localities$coordinates[3, 2])) {
-      paste("Latitude:", round(selected_localities$coordinates[3, 2],3))
-    } else {
-      ""
-    }
-  })
-
-  output$coord7 <- renderText({
-    if (!is.na(selected_localities$coordinates[4, 1])) {
-      paste("Longitude:", round(selected_localities$coordinates[4, 1],3))
-    } else {
-      ""
-    }
-  })
-
-  output$coord8 <- renderText({
-    if (!is.na(selected_localities$coordinates[4, 2])) {
-      paste("Latitude:", round(selected_localities$coordinates[4, 2],3))
-    } else {
-      ""
-    }
-  })
-
-  output$coord9 <- renderText({
-    if (!is.na(selected_localities$coordinates[5, 1])) {
-      paste("Longitude:", round(selected_localities$coordinates[5, 1],3))
-    } else {
-      ""
-    }
-  })
-
-  output$coord10 <- renderText({
-    if (!is.na(selected_localities$coordinates[5, 2])) {
-      paste("Latitude:", round(selected_localities$coordinates[5, 2],3))
-    } else {
-      ""
-    }
+    output[[paste0("coord", 2 * i)]] <- renderText({
+      if (!is.na(selected_localities$coordinates[i, 2])) {
+        paste("Latitude:", round(selected_localities$coordinates[i, 2], 3))
+      } else {
+        ""
+      }
+    })
   })
 
   # run the simulation
   observeEvent(input$run, {
-    coords <- na.omit(selected_localities$coordinates)
+    coords <- selected_localities$coordinates
+    coords <- coords[stats::complete.cases(coords), , drop = FALSE]
 
-    wind_info$predmap <- {
-      # Create a Progress object
-      progress <- shiny::Progress$new(max = 10 * input$nforecast * dim(coords)[1])
-
-      progress$set(message = "Simulating", value = 0)
-      # Close the progress when this reactive exits (even if there's an error)
-      on.exit(progress$close())
-
-      # Create a callback function to update progress.
-      # Each time this is called:
-      # - If `value` is NULL, it will move the progress bar 1/5 of the remaining
-      #   distance. If non-NULL, it will set the progress to that value.
-      # - It also accepts optional detail text.
-      updateProgress <- function(value = NULL) {
-        if (is.null(value)) {
-          value <- progress$getValue()
-          value <- value + (progress$getMax() - value) / 5
-        }
-        progress$set(value = value)
-      }
-
-      wind_sim(
-        data_path = "wind-data",
-        coords = lapply(1:dim(coords)[1], function(x) coords[x,]),
-        nforecast = input$nforecast,
-        nsim = 10,
-        fdate = format(as.Date(wind_info$selected_time_utc), "%Y%m%d"),
-        fhour =  format(wind_info$selected_time_utc, "%H"),
-        atm_level = "950mb",
-        backwards = ifelse(input$direction == "Forward", F, T),
-        updateProgress = updateProgress
-      )
+    if (nrow(coords) == 0) {
+      showNotification("Please select at least one location on the map first.", type = "warning")
+      return()
     }
+    if (is.null(input$forec_date) || is.null(input$forec_time)) {
+      showNotification("Please select a start date and time first.", type = "warning")
+      return()
+    }
+
+    utc <- selected_time_utc()
+    fdate <- format(as.Date(utc), "%Y%m%d")
+    fhour <- format(utc, "%H")
+    nforecast <- as.numeric(input$nforecast)
+    backwards <- input$direction == "Backward"
+
+    missing <- missing_forecasts(fdate, fhour, nforecast, backwards)
+    if (length(missing) > 0) {
+      showNotification(
+        paste0("The wind forecast needed for this simulation is not on the server yet (",
+               paste(missing, collapse = ", "),
+               "). It may still be downloading - please try again in a few minutes."),
+        type = "error",
+        duration = 20
+      )
+      return()
+    }
+
+    res <- run_safely(function() {
+      simulate_with_progress(
+        coords = lapply(seq_len(nrow(coords)), function(x) coords[x, ]),
+        nforecast = nforecast,
+        fdate = fdate,
+        fhour = fhour,
+        backwards = backwards
+      )
+    })
+    if (is.null(res)) return()   # the previous map (if any) stays on screen
+
+    wind_info$predmap <- res$raster
+    wind_info$exit <- res$info
+    # the locations this map was made for (not whatever is selected later)
+    wind_info$coords <- data.frame(long = coords[, 1], lat = coords[, 2])
 
     if (input$direction == "Backward")
       wind_info$title_text <-
@@ -682,77 +823,14 @@ server <- function(input, output, session) {
 
   })
 
+  output$prediction_notice <- renderUI({
+    req(wind_info$predmap)
+    exit_notice(wind_info$exit)
+  })
 
   output$prediction <- renderPlot({
-    # plot(generate_plot())
-
-    req(input$run)
-
-    # make plot only react to the run button
-    isolate({
-      xt <- c(
-        floor(min(selected_localities$coordinates[,1], na.rm = T)) - 18,
-        floor(max(selected_localities$coordinates[,1], na.rm = T)) + 18,
-        floor(min(selected_localities$coordinates[,2], na.rm = T)) - 15,
-        floor(max(selected_localities$coordinates[,2], na.rm = T)) + 15
-      )
-
-      pt <-
-        data.frame(long = na.omit(selected_localities$coordinates[,1]), lat = na.omit(selected_localities$coordinates[,2]))
-
-      if (!is.null(wind_info$predmap)) {
-        r_crop <- terra::crop(wind_info$predmap, xt)
-        r_crop <-
-          r_crop / global(r_crop, max, na.rm = TRUE)[1, 1] * 100
-
-        gplot(r_crop, maxpixels = 500000) +
-          geom_tile(aes(fill = value), alpha = 0.8) +
-          viridis::scale_fill_viridis(option = "D",
-                                      direction = -1,
-                                      na.value = NA) +
-          geom_point(
-            data = pt,
-            aes(x = long, y = lat),
-            inherit.aes = FALSE,
-            col = "red",
-            alpha = 0.8,
-            shape = "\u2605",
-            size = 7
-          ) +
-          geom_sf(
-            data = st_crop(border, ext(xt)),
-            inherit.aes = FALSE,
-            fill = NA
-          ) +
-          coord_sf(crs = 4326) +
-          theme_minimal() +
-          theme(
-            plot.title = element_text(size = 14),
-            axis.text = element_text(size = 14),
-            axis.title = element_text(size = 15),
-            legend.text = element_text(size = 13),
-            legend.title = element_text(size = 13),
-            axis.title.x = element_text(margin = margin(
-              t = 15,
-              r = 0,
-              b = 0,
-              l = 0
-            )),
-            axis.title.y = element_text(margin = margin(
-              t = 0,
-              r = 15,
-              b = 0,
-              l = 0
-            ))
-          ) +
-          labs(x = "Longitude",
-               y = "Latitude",
-               fill = "Frequency") +
-          ggtitle(wind_info$title_text)
-      }
-
-    })
-
+    req(wind_info$predmap, wind_info$coords)
+    make_prediction_plot(wind_info$predmap, wind_info$coords, wind_info$title_text)
   })
 
 }

@@ -2,8 +2,10 @@
 
 This is an app developed by [Cesar Australia](https://cesaraustralia.com/) to predict the wind-assisted dispersal of Fall Armyworm (FAW; *Spodoptera frugiperda*).
 The app runs real-time simulations of dispersal using the cellular automata model, allowing users to predict the direction and distance that FAW will travel under different scenarios. 
-FAW is lepidopteran pest species which causes major damage to economically important cultivated grasses, vegetable crops, and cotton. It was first reported in Australia in January 2020, and has rapidly spread across Eastern Australia.
+FAW is a lepidopteran pest species which causes major damage to economically important cultivated grasses, vegetable crops, and cotton. It was first reported in Australia in January 2020, and has rapidly spread across Eastern Australia.
 As this pest can migrate large distances over short periods of time, regular monitoring and surveillance are vital. Knowing when the adult moths are likely to appear in an area helps to inform monitoring for larvae, and proactive management if required. 
+
+**Current version: v1.1.0** (see [What's new](#whats-new-in-v110)).
 
 <br>  
 
@@ -13,9 +15,21 @@ The cellular automata (CA) model for wind-assisted dispersal was developed by Ce
 
 The CA algorithm was developed to provide quick and efficient simulations of the direction and speed that FAW will travel via wind-assisted dispersal. The model incorporates both localised information and broad scale weather data to calculate where the moths will disperse to from selected starting locations. 
 
+Each simulated moth moves in one-hour steps. In each hour, the distance it travels is set by the wind speed where it is, and its direction by the wind in and around its current cell, with some random variation. Repeating the simulation many times from the same starting point therefore traces out a spread of possible paths, and the map shows how often each cell is crossed.
+
 ![](CA_north.gif "Simulated trajectories from 167 starting points for 48h forecast in 1h intervals.")
 
-A full description of the model and validation against recorded FAW movements in Eastern Australia will be made available when published.
+A full description of the model and validation against recorded FAW movements in Eastern Australia has been published in a [report to PHA]("https://www.planthealthaustralia.com.au/?download=40232").
+
+#### What's new in v1.1.0
+
+* **Updated movement model.** Simulated moths now travel the full distance carried by the wind. Previously, due to a bug, movement was capped at roughly one grid cell (about 25 km) per hour whatever the wind speed. The distance and direction of each move also now account for grid cells being narrower (east-west) further from the equator. **Maps from this version are therefore not directly comparable with maps from earlier versions**: trajectories are generally longer, particularly in strong winds.
+* **Smoother maps.** Each simulation now runs 100 replicate trajectories per locality (previously 10).
+* **Much faster.** Simulations typically finish within a few seconds instead of minutes.
+* **Model area shown and checked.** The area covered by the wind data is outlined with a dashed line on the maps. Localities outside it cannot be selected, and a warning appears above the results if many trajectories leave the area (see [Reading the results](#reading-the-results)).
+* **Clearer errors.** If a simulation cannot be completed (for example because the latest forecast has not finished downloading), a message is shown and the previous result stays on screen, instead of the app stopping.
+* **Multi-site forecast shared per day.** The Multi-site Northern Prediction is calculated once per day and shared between users.
+* Smaller fixes: the list of selected localities can no longer get out of step when deleting; your chosen date, time and run time are kept when you change other settings, and the latest available start time is now always calculated using Brisbane time.
 
 #### Data used for simulations
 
@@ -41,13 +55,19 @@ The default use of the tool is to perform a **Rapid simulation** based on user-d
 
 ![](forecast_tool_locality.png)
 
-4. Locality: The location of moths present to predict their direction of travel (forwards) or their predicted origin (backwards). You can click on the map to select up to five localities for the simulation. Delete selected localities by pressing on the adjacent button.
+4. Locality: The location of moths present to predict their direction of travel (forwards) or their predicted origin (backwards). You can click on the map to select up to five localities for the simulation. Localities must be inside the dashed outline (the model area); a click outside it is ignored and a message is shown. Delete selected localities by pressing on the adjacent button.
 
-*Note that longer total run times and greater numbers of localities will result in longer computation times, up to three minutes for forwards simulations and up to 11 minutes for backwards simulations. If that time has passed and no output has been created, please refresh and try again. If the error persists, contact Cesar Australia for support.*
+*Note that simulations normally take only a few seconds, although longer run times and more localities will take a little longer. If the simulation cannot be completed (for example, if you are running it close to the latest forecast time and the forecast has not finished downloading), a message will appear: please try again in a few minutes. If the error persists, contact Cesar Australia for support.*
 
-After you have selected all of your starting conditions, press the **Run forecast** button. After a short wait the results of your simulation will show up on the right, with cells coloured based on the frequency of simulated trajectories passing through them.
+After you have selected all of your starting conditions, press the **Run forecast** button. The results of your simulation will show up on the right, with cells coloured based on the frequency of simulated trajectories passing through them.
 
-Alternatively, you can switch to the **Multi-site Northern Prediction** tab to simulate overnight dispersal from localities where there is a year-round risk of FAW. Select your timezone of choice, and press the **Run forecast** button to generate a map of where FAW may have dispersed to overnight. This should take roughly eight minutes to produce.
+Alternatively, you can switch to the **Multi-site Northern Prediction** tab to simulate overnight dispersal from localities where there is a year-round risk of FAW. Select your timezone of choice, and press the **Run forecast** button to generate a map of where FAW may have dispersed to overnight. This forecast is calculated once per day and shared between users, so the first run of the day may take a little longer than later ones.
+
+#### Reading the results
+
+The red star(s) on the map mark the localities the result was run for. The dashed red line marks the edge of the model area, which is the extent of the downloaded wind data. Trajectories that reach this edge cannot be followed any further, so the pattern of the map is cut off there.
+
+If more than 10% of the simulated trajectories leave the model area, a warning is shown above the map. In that case, treat the map near the edge with caution, and remember that for backward simulations the true source may lie beyond the edge. This is most likely for long runs, strong winds, and localities close to the edge of the model area (particularly the 96 hour backward simulations).
 
 <br>
 
@@ -58,6 +78,40 @@ For more information on surveillance and how to monitor for and manage FAW see:
 [NSWDPI surveillance – NSW](https://www.dpi.nsw.gov.au/biosecurity/plant/insect-pests-and-plant-diseases/fall-armyworm/)
 
 [PestFacts south-eastern article – Vic](https://cesaraustralia.com/pestfacts/fall-armyworm-victoria-maize/)
+
+<br>
+
+### For maintainers
+
+**Files.** `app.R` is the Shiny app. The model lives in `R/`:
+
+| File | Purpose |
+|---|---|
+| `R/wind_ca.cpp` | C++ implementation of the CA model (Rcpp) |
+| `R/wind_ca_model_cpp.R` | R wrapper: reads the wind data once, calls the C++ model, builds the output raster |
+| `R/wind_ca_fixed_r.R` | Pure-R implementation of the same model, used if the C++ code cannot be compiled |
+
+`R/wind_scr.R` and `R/wind_ca_model.R` (the original R model) are no longer used by the app.
+
+**Model engine.** On startup the app compiles `R/wind_ca.cpp` with `Rcpp::sourceCpp()`. This needs the Rcpp package and a C++ compiler in the container. If compilation fails, the app logs the reason and runs the pure-R implementation instead (same model, a little slower). The container log shows `[wind model] engine: cpp` or `engine: r`.
+
+**Settings** are at the top of `app.R`:
+
+| Setting | Meaning |
+|---|---|
+| `NSIM` | replicate trajectories per locality (100) |
+| `WIND_DIR`, `ATM_LEVEL` | wind data folder and pressure level (`950mb`) |
+| `MAX_POINTS` | maximum localities on the Rapid simulation tab (5) |
+| `EXIT_WARN_FRACTION` | share of trajectories leaving the model area that triggers the warning (0.10) |
+| `LATEST_TZ` | timezone used for the latest available start time (08:00 Brisbane time) |
+| `MODEL_VERSION` | change to invalidate cached multi-site forecasts |
+| `CACHE_DIR` | where the daily multi-site forecast is cached |
+
+**Daily cache.** The Multi-site Northern Prediction is saved to `CACHE_DIR` (default `wind-forecast-cache` in the system temporary folder, shared by all R processes in the container; set the `WIND_CACHE_DIR` environment variable to use another folder, e.g. a mounted volume, so it survives restarts). The cache key includes the settings and a hash of the model code, so changing either re-runs the forecast. Files older than three days are removed at startup, and an unreadable cache file is ignored and rebuilt.
+
+**Model area.** The model area is defined by the extent of the downloaded wind data. `SpatialData/boundary.gpkg` should match it, because it is used to draw the dashed outline and to reject localities outside it. If you widen the area downloaded by the wind-data job, regenerate `boundary.gpkg` to match. A wider area reduces the number of trajectories cut off at the edge, at the cost of more memory per simulation.
+
+**Replicates leaving the model area.** The model reports how many replicates left the wind-data area. The app uses this for the warning above the map.
 
 <br>
 
