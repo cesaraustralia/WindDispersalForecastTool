@@ -5,7 +5,7 @@ The app runs real-time simulations of dispersal using the cellular automata mode
 FAW is a lepidopteran pest species which causes major damage to economically important cultivated grasses, vegetable crops, and cotton. It was first reported in Australia in January 2020, and has rapidly spread across Eastern Australia.
 As this pest can migrate large distances over short periods of time, regular monitoring and surveillance are vital. Knowing when the adult moths are likely to appear in an area helps to inform monitoring for larvae, and proactive management if required. 
 
-**Current version: v1.1.0** (see [What's new](#whats-new-in-v110)).
+**Current version: v1.1.1** (see [What's new](#whats-new-in-v111)).
 
 <br>  
 
@@ -19,17 +19,18 @@ Each simulated moth moves in one-hour steps. In each hour, the distance it trave
 
 ![](CA_north.gif "Simulated trajectories from 167 starting points for 48h forecast in 1h intervals.")
 
-A full description of the model and validation against recorded FAW movements in Eastern Australia has been published in a [report to PHA]("https://www.planthealthaustralia.com.au/?download=40232").
+A full description of the model and validation against recorded FAW movements in Eastern Australia will be made available when published.
 
-#### What's new in v1.1.0
+#### What's new in v1.1.1
 
-* **Updated movement model.** Simulated moths now travel the full distance carried by the wind. Previously, due to a bug, movement was capped at roughly one grid cell (about 25 km) per hour whatever the wind speed. The distance and direction of each move also now account for grid cells being narrower (east-west) further from the equator. **Maps from this version are therefore not directly comparable with maps from earlier versions**: trajectories are generally longer, particularly in strong winds.
+* **Longer backward simulations now work correctly.** Previously, backward simulations beyond about 43 hours could fail depending on the start time, because all wind data was read from a single GFS forecast cycle. The model now reads each simulation hour from the best available cycle for that time, so any duration up to 96 hours works reliably.
+* **Updated movement model.** Simulated moths now travel the full distance carried by the wind. Previously, movement was capped at roughly one grid cell (about 25 km) per hour whatever the wind speed. The distance and direction of each move also now account for grid cells being narrower (east-west) further from the equator. **Maps from this version are therefore not directly comparable with maps from earlier versions**: trajectories are generally longer, particularly in strong winds.
 * **Smoother maps.** Each simulation now runs 100 replicate trajectories per locality (previously 10).
 * **Much faster.** Simulations typically finish within a few seconds instead of minutes.
 * **Model area shown and checked.** The area covered by the wind data is outlined with a dashed line on the maps. Localities outside it cannot be selected, and a warning appears above the results if many trajectories leave the area (see [Reading the results](#reading-the-results)).
 * **Clearer errors.** If a simulation cannot be completed (for example because the latest forecast has not finished downloading), a message is shown and the previous result stays on screen, instead of the app stopping.
 * **Multi-site forecast shared per day.** The Multi-site Northern Prediction is calculated once per day and shared between users.
-* Smaller fixes: the list of selected localities can no longer get out of step when deleting; your chosen date, time and run time are kept when you change other settings, and the latest available start time is now always calculated using Brisbane time.
+* Smaller fixes: the list of selected localities can no longer get out of step when deleting, your chosen date, time and run time are kept when you change other settings, and the latest available start time is now always calculated using Brisbane time.
 
 #### Data used for simulations
 
@@ -57,7 +58,7 @@ The default use of the tool is to perform a **Rapid simulation** based on user-d
 
 4. Locality: The location of moths present to predict their direction of travel (forwards) or their predicted origin (backwards). You can click on the map to select up to five localities for the simulation. Localities must be inside the dashed outline (the model area); a click outside it is ignored and a message is shown. Delete selected localities by pressing on the adjacent button.
 
-*Note that simulations normally take only a few seconds, although longer run times and more localities will take a little longer. If the simulation cannot be completed (for example, if you are running it close to the latest forecast time and the forecast has not finished downloading), a message will appear: please try again in a few minutes. If the error persists, contact Cesar Australia for support.*
+*Note that simulations normally take only a few seconds, and backward simulations up to 96 hours are fully supported. Longer run times and more localities will take a little longer. If the simulation cannot be completed (for example, if you are running it close to the latest forecast time and the forecast has not finished downloading), a message will appear: please try again in a few minutes. If the error persists, contact Cesar Australia for support.*
 
 After you have selected all of your starting conditions, press the **Run forecast** button. The results of your simulation will show up on the right, with cells coloured based on the frequency of simulated trajectories passing through them.
 
@@ -92,6 +93,8 @@ For more information on surveillance and how to monitor for and manage FAW see:
 | `R/wind_ca_fixed_r.R` | Pure-R implementation of the same model, used if the C++ code cannot be compiled |
 
 `R/wind_scr.R` and `R/wind_ca_model.R` (the original R model) are no longer used by the app.
+
+**Wind data reading (Option B).** Each simulation hour is read from the most recent available GFS cycle for that specific hour's valid time, rather than from a single cycle for the whole run. Only files `f000`–`f005` are ever needed from any cycle, and any run length up to 96 hours works as long as enough cycle folders are on disk. If the nearest cycle folder is missing, the model silently falls back to the next older one (up to 48 hours back).
 
 **Model engine.** On startup the app compiles `R/wind_ca.cpp` with `Rcpp::sourceCpp()`. This needs the Rcpp package and a C++ compiler in the container. If compilation fails, the app logs the reason and runs the pure-R implementation instead (same model, a little slower). The container log shows `[wind model] engine: cpp` or `engine: r`.
 

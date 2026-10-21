@@ -96,22 +96,45 @@ simulate_with_progress <- function(coords, nforecast, fdate, fhour, backwards) {
   list(raster = r, info = as.list(info))
 }
 
-# Which forecast folders does this run need that are not on the server (yet)?
-# Returns a character vector describing them (empty if everything is there).
+# Which 6h GFS cycles does this run need that are not on the server (yet)?
+# Uses Option B: each simulation hour uses the most recent available cycle, so the set of
+# required cycles is all 6h boundaries bracketed by the run's time window, plus each one's
+# immediate predecessor (needed as a fallback when .wca_read_hour cannot find the ideal cycle).
+# Returns a character vector of missing cycles (empty if everything is present).
 missing_forecasts <- function(fdate, fhour, nforecast, backwards) {
-  cyc <- .wca_resolve_cycle(fdate, fhour, nforecast, backwards)
-  dirs <- file.path(WIND_DIR, cyc$fdate, cyc$fhour)
-  if (nforecast > 48) {
-    dirs <- c(dirs, file.path(WIND_DIR, format(ymd(cyc$fdate) + 2, "%Y%m%d"), cyc$fhour))
+  ref_utc <- lubridate::ymd_h(paste(fdate, fhour), tz = "UTC")
+  secs    <- as.numeric(ref_utc)
+
+  # all valid times this run will need
+  hour_secs <- secs + (if (backwards) -seq_len(nforecast) else seq_len(nforecast)) * 3600L
+
+  # unique ideal cycles (the most recent 6h boundary at or before each valid time)
+  ideal_cs <- unique(floor(hour_secs / (6 * 3600)) * (6 * 3600))
+
+  missing <- character(0)
+  for (cs in ideal_cs) {
+    # a cycle is "covered" when it OR the immediately preceding cycle (the fallback) has data
+    found <- FALSE
+    for (lag in 0:1) {
+      check_cs <- cs - lag * 21600L
+      ct <- as.POSIXct(check_cs, origin = "1970-01-01", tz = "UTC")
+      d  <- format(as.Date(ct), "%Y%m%d")
+      hh <- sprintf("%02d", lubridate::hour(ct))
+      folder <- file.path(WIND_DIR, d, hh)
+      if (dir.exists(folder) &&
+          length(list.files(folder, pattern = paste0("^gfs_ugrd_", ATM_LEVEL, "_"))) > 0) {
+        found <- TRUE; break
+      }
+    }
+    if (!found) {
+      ct  <- as.POSIXct(cs, origin = "1970-01-01", tz = "UTC")
+      lbl <- sprintf("%s %s:00 UTC",
+                     format(as.Date(ct), "%d %b %Y"),
+                     sprintf("%02d", lubridate::hour(ct)))
+      if (!lbl %in% missing) missing <- c(missing, lbl)
+    }
   }
-  has_data <- vapply(dirs, function(d) {
-    length(list.files(d, pattern = paste0("^gfs_ugrd_", ATM_LEVEL, "_"))) > 0
-  }, logical(1))
-  dirs <- dirs[!has_data]
-  vapply(dirs, function(d) {
-    p <- strsplit(d, "/")[[1]]
-    sprintf("%s %s:00 UTC", format(ymd(p[length(p) - 1]), "%d %b %Y"), p[length(p)])
-  }, character(1), USE.NAMES = FALSE)
+  missing
 }
 
 # runs `fun`; on failure logs the error, tells the user, and returns NULL instead of ending the session

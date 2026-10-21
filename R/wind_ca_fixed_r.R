@@ -352,17 +352,19 @@ wind_sim_hist_r_fixed <- function(data_u = NULL,
   if (length(coords) == 0) stop("`coords` is empty")
   r <- data_u[[1]]
 
-  cyc <- .wca_resolve_cycle(fdate, fhour, nforecast, backwards)
-  fdate <- cyc$fdate; difference <- cyc$difference; index <- cyc$index
+  ref_utc     <- lubridate::ymd_h(paste(fdate, fhour), tz = "UTC")
+  layer_times <- lubridate::ymd_h(names(data_u), tz = "UTC")
+  forecast_hours <- if (backwards) rev(seq_len(nforecast)) else seq_len(nforecast)
 
-  start_layer <- which(names(data_u) == paste0(fdate, .wca_interval[index]))
-  if (length(start_layer) != 1)
-    stop("Layer '", paste0(fdate, .wca_interval[index]), "' not found in names(data_u)")
+  lyr <- vapply(seq_len(nforecast), function(k) {
+    vt  <- if (backwards) ref_utc - k * 3600 else ref_utc + k * 3600
+    idx <- which(layer_times <= vt)
+    if (!length(idx))
+      stop(sprintf("No wind layer found at or before %s in the historical stack",
+                   format(vt, "%Y-%m-%d %H UTC")))
+    max(idx)
+  }, integer(1))
 
-  forecast_hours <- seq_len(nforecast)
-  if (backwards) forecast_hours <- rev(forecast_hours)
-
-  lyr <- start_layer + floor((forecast_hours + difference) / 6)
   if (any(lyr > terra::nlyr(data_u) | lyr > terra::nlyr(data_v)))
     stop("The simulation needs wind layers beyond the end of data_u / data_v")
 
@@ -372,5 +374,6 @@ wind_sim_hist_r_fixed <- function(data_u = NULL,
 
   .run_ca_r(r, U, V, layers0 = match(lyr, used) - 1L, hours = forecast_hours,
             coords = coords, nsim = nsim, nforecast = nforecast,
-            backwards = backwards, full = full, updateProgress = NULL, run_info = run_info)
+            backwards = backwards, full = full, updateProgress = NULL,
+            run_info = run_info)
 }

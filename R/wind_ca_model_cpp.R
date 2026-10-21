@@ -50,6 +50,33 @@
 
 .wca_interval <- c("00", "06", "12", "18")
 
+# For each simulation step, reads the best available GFS wind files for that valid time.
+# Uses the most recent 6h cycle at or before `valid_time`; if that folder is missing,
+# falls back to older cycles (up to 48h back). This means we need only f000-f011 from
+# each cycle, so any run length works as long as enough cycles are on disk.
+.wca_read_hour <- function(data_path, valid_time, level) {
+  secs <- as.numeric(valid_time)
+  for (lag in 0:7) {
+    cs <- floor(secs / (6 * 3600)) * (6 * 3600) - lag * 21600L   # 21600 = 6 * 3600
+    ct <- as.POSIXct(cs, origin = "1970-01-01", tz = "UTC")
+    d  <- format(as.Date(ct), "%Y%m%d")
+    hh <- sprintf("%02d", lubridate::hour(ct))
+    fh <- as.integer(round((secs - cs) / 3600))
+    fu <- file.path(data_path, d, hh, sprintf("gfs_ugrd_%s_%s_t%sz_f%03d", level, d, hh, fh))
+    fv <- file.path(data_path, d, hh, sprintf("gfs_vgrd_%s_%s_t%sz_f%03d", level, d, hh, fh))
+    if (file.exists(fu) && file.exists(fv)) {
+      ru <- terra::rast(fu)
+      return(list(u = terra::values(ru[[1]], mat = FALSE),
+                  v = terra::values(terra::rast(fv)[[1]], mat = FALSE),
+                  r = ru))
+    }
+  }
+  stop(sprintf(
+    "No GFS wind data found for %s (level %s): tried 8 cycles (48 h) back and found nothing.",
+    format(valid_time, "%Y-%m-%d %H:%M UTC"), level))
+}
+
+
 .wca_resolve_cycle <- function(fdate, fhour, nforecast, backwards) {
   interval <- .wca_interval
   if (backwards) {
@@ -173,41 +200,33 @@ wind_sim_cpp <- function(data_path = "wind-data",
   if (length(coords) == 0) stop("`coords` is empty")
   if (isTRUE(parallel)) message("`parallel` is ignored: the C++ version runs single-threaded and is fast.")
 
-  cyc <- .wca_resolve_cycle(fdate, fhour, nforecast, backwards)
-  fdate <- cyc$fdate; fhour <- cyc$fhour; difference <- cyc$difference
+  # Reference time in UTC.
+  #   forward:  ref_utc = start of the simulation
+  #   backward: ref_utc = observation / arrival time (the simulation traces back from here)
+  ref_utc <- lubridate::ymd_h(paste(fdate, fhour), tz = "UTC")
 
-  pathway <- file.path(data_path, fdate, fhour)
-  files <- .wca_gfs_names(path = pathway)
+  # For each simulation step k (1..nforecast) read the best available GFS cycle for that
+  # valid time.  Option B: the most recent 6h cycle at or before the valid time is used,
+  # with automatic fallback to older cycles.  This means no run length is limited by how
+  # many files a single cycle contains.
+  r_tmpl <- NULL
+  U <- V <- NULL
+  forecast_hours <- if (backwards) rev(seq_len(nforecast)) else seq_len(nforecast)
 
-  npathway <- NULL
-  if (nforecast > 48) {
-    nfdate <- as.character(format(lubridate::ymd(fdate) + 2, "%Y%m%d"))
-    npathway <- file.path(data_path, nfdate, fhour)
-    nfiles <- .wca_gfs_names(path = npathway)
-    nfiles$forecast <- sprintf("f%03d", as.numeric(sub("f", "", nfiles$forecast)) + 48)
-    files <- rbind(files, nfiles)
-  }
-  forecasts <- unique(files$forecast)
-
-  r <- terra::rast(file.path(pathway, files$file[1]))
-  ncell <- terra::ncell(r)
-
-  forecast_hours <- seq_len(nforecast)
-  if (backwards) forecast_hours <- rev(forecast_hours)
-
-  # read every needed u / v field exactly once
-  U <- matrix(NA_real_, ncell, length(forecast_hours))
-  V <- matrix(NA_real_, ncell, length(forecast_hours))
-  for (k in seq_along(forecast_hours)) {
-    f <- forecast_hours[k]
-    if (f > 48) { read_path <- npathway; diff_f <- 0 } else { read_path <- pathway; diff_f <- difference }
-    fc <- forecasts[f + diff_f]
-    if (is.na(fc)) stop("Forecast hour ", f, " is not available in the data")
-    U[, k] <- .wca_read_wind_values(read_path, files, "ugrd", fc, atm_level)
-    V[, k] <- .wca_read_wind_values(read_path, files, "vgrd", fc, atm_level)
+  for (k in seq_len(nforecast)) {
+    valid_time <- if (backwards) ref_utc - k * 3600 else ref_utc + k * 3600
+    w <- .wca_read_hour(data_path, valid_time, atm_level)
+    if (is.null(r_tmpl)) {
+      r_tmpl <- w$r
+      ncell  <- terra::ncell(r_tmpl)
+      U <- matrix(NA_real_, ncell, nforecast)
+      V <- matrix(NA_real_, ncell, nforecast)
+    }
+    U[, k] <- w$u
+    V[, k] <- w$v
   }
 
-  .run_ca(r, U, V, layers0 = seq_along(forecast_hours) - 1L, hours = forecast_hours,
+  .run_ca(r_tmpl, U, V, layers0 = seq_len(nforecast) - 1L, hours = forecast_hours,
           coords = coords, nsim = nsim, nforecast = nforecast, cellsize = cellsize,
           backwards = backwards, full = full, updateProgress = updateProgress, mode = mode,
           run_info = run_info)
@@ -238,21 +257,26 @@ wind_sim_hist_cpp <- function(data_u = NULL,
 
   r <- data_u[[1]]
 
-  cyc <- .wca_resolve_cycle(fdate, fhour, nforecast, backwards)
-  fdate <- cyc$fdate; difference <- cyc$difference; index <- cyc$index
+  # Reference time in UTC (start for forward, observation time for backward).
+  ref_utc     <- lubridate::ymd_h(paste(fdate, fhour), tz = "UTC")
+  layer_times <- lubridate::ymd_h(names(data_u), tz = "UTC")
 
-  start_layer <- which(names(data_u) == paste0(fdate, .wca_interval[index]))
-  if (length(start_layer) != 1)
-    stop("Layer '", paste0(fdate, .wca_interval[index]), "' not found in names(data_u)")
+  forecast_hours <- if (backwards) rev(seq_len(nforecast)) else seq_len(nforecast)
 
-  forecast_hours <- seq_len(nforecast)
-  if (backwards) forecast_hours <- rev(forecast_hours)
+  # For each simulation step k, pick the most recent available layer whose timestamp is
+  # at or before the valid time for that step (Option B).
+  lyr <- vapply(seq_len(nforecast), function(k) {
+    vt  <- if (backwards) ref_utc - k * 3600 else ref_utc + k * 3600
+    idx <- which(layer_times <= vt)
+    if (!length(idx))
+      stop(sprintf("No wind layer found at or before %s in the historical stack",
+                   format(vt, "%Y-%m-%d %H UTC")))
+    max(idx)
+  }, integer(1))
 
-  lyr <- start_layer + floor((forecast_hours + difference) / 6)
   if (any(lyr > terra::nlyr(data_u) | lyr > terra::nlyr(data_v)))
     stop("The simulation needs wind layers beyond the end of data_u / data_v")
 
-  # only pull the layers that are actually used
   used <- sort(unique(lyr))
   U <- terra::values(data_u[[used]], mat = TRUE)
   V <- terra::values(data_v[[used]], mat = TRUE)
